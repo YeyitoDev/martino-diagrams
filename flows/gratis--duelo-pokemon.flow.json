@@ -1,0 +1,275 @@
+{
+  "name": "Duelo pokémon",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "d0",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 40,
+      "y": 40
+    },
+    {
+      "id": "d1",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 40,
+      "y": 200,
+      "data": {
+        "retador": "pikachu",
+        "rival": "charizard"
+      }
+    },
+    {
+      "id": "d2",
+      "type": "request",
+      "key": "poke1",
+      "name": "Retador",
+      "x": 300,
+      "y": -60,
+      "ref": "Pokemon/Obtener-pokemon.bru",
+      "vars": [
+        {
+          "name": "nombre",
+          "value": "{{entrada.retador}}"
+        }
+      ]
+    },
+    {
+      "id": "d3",
+      "type": "request",
+      "key": "poke2",
+      "name": "Rival",
+      "x": 300,
+      "y": 160,
+      "ref": "Pokemon/Obtener-pokemon.bru",
+      "vars": [
+        {
+          "name": "nombre",
+          "value": "{{entrada.rival}}"
+        }
+      ]
+    },
+    {
+      "id": "d4",
+      "type": "transform",
+      "key": "duelo",
+      "name": "Comparar estadísticas",
+      "x": 580,
+      "y": 40,
+      "code": "const ficha = n => ({\n  nombre: n.response.name,\n  total: n.response.stats.reduce((s, x) => s + x.base_stat, 0),\n  tipo: n.response.types[0].type.name,\n});\nconst a = ficha(nodes.poke1), b = ficha(nodes.poke2);\nconst g = a.total >= b.total ? a : b;\nreturn { retador: a, rival: b, ganador: g.nombre, tipoGanador: g.tipo, diferencia: Math.abs(a.total - b.total) };"
+    },
+    {
+      "id": "d5",
+      "type": "lookup",
+      "key": "tipo",
+      "name": "Tipo en español",
+      "x": 840,
+      "y": 40,
+      "lookup": {
+        "table": "tipos",
+        "value": "{{duelo.tipoGanador}}",
+        "column": "ingles",
+        "onMiss": "keep",
+        "default": ""
+      }
+    },
+    {
+      "id": "d6",
+      "type": "condition",
+      "key": "empate",
+      "name": "¿Empate?",
+      "x": 1100,
+      "y": 40,
+      "rules": [
+        {
+          "left": "duelo.diferencia",
+          "op": "eq",
+          "right": "0"
+        }
+      ],
+      "mode": "all"
+    },
+    {
+      "id": "d7",
+      "type": "response",
+      "key": "hay_ganador",
+      "name": "Hay ganador",
+      "x": 1360,
+      "y": -60,
+      "status": "200",
+      "body": {
+        "ganador": "{{duelo.ganador}}",
+        "tipo": "{{tipo.espanol}}",
+        "ventaja": "{{duelo.diferencia}}",
+        "retador": "{{duelo.retador}}",
+        "rival": "{{duelo.rival}}"
+      }
+    },
+    {
+      "id": "d8",
+      "type": "response",
+      "key": "empate_final",
+      "name": "Empate",
+      "x": 1360,
+      "y": 160,
+      "status": "200",
+      "body": {
+        "ganador": null,
+        "mensaje": "Empate: los dos suman {{duelo.retador.total}}"
+      }
+    },
+    {
+      "id": "d9",
+      "type": "response",
+      "key": "no_existe",
+      "name": "Pokémon no existe",
+      "x": 580,
+      "y": 300,
+      "status": "404",
+      "body": {
+        "error": "PokéAPI no conoce a «{{entrada.retador}}» o «{{entrada.rival}}»"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "d0",
+      "port": "out",
+      "to": "d2"
+    },
+    {
+      "from": "d0",
+      "port": "out",
+      "to": "d3"
+    },
+    {
+      "from": "d2",
+      "port": "out",
+      "to": "d4"
+    },
+    {
+      "from": "d3",
+      "port": "out",
+      "to": "d4"
+    },
+    {
+      "from": "d2",
+      "port": "error",
+      "to": "d9"
+    },
+    {
+      "from": "d3",
+      "port": "error",
+      "to": "d9"
+    },
+    {
+      "from": "d4",
+      "port": "out",
+      "to": "d5"
+    },
+    {
+      "from": "d5",
+      "port": "out",
+      "to": "d6"
+    },
+    {
+      "from": "d6",
+      "port": "true",
+      "to": "d8"
+    },
+    {
+      "from": "d6",
+      "port": "false",
+      "to": "d7"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [
+    {
+      "id": "DUE-001",
+      "name": "Pikachu contra Charizard",
+      "input": {
+        "retador": "pikachu",
+        "rival": "charizard"
+      },
+      "expectStatus": 200,
+      "note": "Charizard suma 534 contra 320",
+      "expect": [
+        {
+          "left": "ganador",
+          "op": "eq",
+          "right": "charizard"
+        },
+        {
+          "left": "tipo",
+          "op": "eq",
+          "right": "Fuego"
+        }
+      ]
+    },
+    {
+      "id": "DUE-002",
+      "name": "Mewtwo contra Magikarp",
+      "input": {
+        "retador": "mewtwo",
+        "rival": "magikarp"
+      },
+      "expectStatus": 200,
+      "note": "Gana el retador; el tipo psychic se traduce",
+      "expect": [
+        {
+          "left": "ganador",
+          "op": "eq",
+          "right": "mewtwo"
+        },
+        {
+          "left": "tipo",
+          "op": "eq",
+          "right": "Psíquico"
+        }
+      ]
+    },
+    {
+      "id": "DUE-003",
+      "name": "Ditto contra sí mismo",
+      "input": {
+        "retador": "ditto",
+        "rival": "ditto"
+      },
+      "expectStatus": 200,
+      "note": "Mismo total: sale por Empate",
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "empate_final"
+        }
+      ]
+    },
+    {
+      "id": "DUE-004",
+      "name": "Nombre inventado",
+      "input": {
+        "retador": "pokefalso",
+        "rival": "pikachu"
+      },
+      "expectStatus": 404,
+      "note": "PokéAPI responde 404 y el flujo sale por la rama de error",
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "no_existe"
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

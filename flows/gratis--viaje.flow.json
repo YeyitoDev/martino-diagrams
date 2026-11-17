@@ -1,0 +1,321 @@
+{
+  "name": "Viaje: clima y cambio por país",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "v0",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 40,
+      "y": 40
+    },
+    {
+      "id": "v1",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 40,
+      "y": 200,
+      "data": {
+        "pais": "Perú",
+        "montoUsd": 100
+      }
+    },
+    {
+      "id": "v2",
+      "type": "lookup",
+      "key": "pais",
+      "name": "Datos del país",
+      "x": 300,
+      "y": 40,
+      "lookup": {
+        "table": "paises",
+        "value": "{{entrada.pais}}",
+        "column": "pais",
+        "onMiss": "default",
+        "default": "?"
+      }
+    },
+    {
+      "id": "v3",
+      "type": "condition",
+      "key": "soportado",
+      "name": "¿País en la tabla?",
+      "x": 560,
+      "y": 40,
+      "rules": [
+        {
+          "left": "pais.moneda",
+          "op": "neq",
+          "right": "?"
+        }
+      ],
+      "mode": "all"
+    },
+    {
+      "id": "v4",
+      "type": "request",
+      "key": "clima",
+      "name": "Clima en la capital",
+      "x": 820,
+      "y": -80,
+      "ref": "Clima/Clima-actual.bru",
+      "vars": [
+        {
+          "name": "lat",
+          "value": "{{pais.lat}}"
+        },
+        {
+          "name": "lng",
+          "value": "{{pais.lng}}"
+        }
+      ]
+    },
+    {
+      "id": "v5",
+      "type": "request",
+      "key": "cambio",
+      "name": "Dólar a moneda local",
+      "x": 820,
+      "y": 160,
+      "ref": "Clima/Tipo-de-cambio.bru",
+      "vars": [
+        {
+          "name": "base",
+          "value": "USD"
+        }
+      ]
+    },
+    {
+      "id": "v6",
+      "type": "transform",
+      "key": "resumen",
+      "name": "Resumen del viaje",
+      "x": 1100,
+      "y": 40,
+      "code": "const p = nodes.pais;\nconst c = nodes.clima.response.current;\nconst tasa = nodes.cambio.response.rates[p.moneda];\nreturn {\n  temp: c.temperature_2m,\n  humedad: c.relative_humidity_2m,\n  viento: c.wind_speed_10m,\n  tasa,\n  enMonedaLocal: Math.round(input.montoUsd * tasa * 100) / 100,\n};"
+    },
+    {
+      "id": "v7",
+      "type": "condition",
+      "key": "calor",
+      "name": "¿Más de 22 °C?",
+      "x": 1360,
+      "y": 40,
+      "rules": [
+        {
+          "left": "resumen.temp",
+          "op": "gt",
+          "right": "22"
+        }
+      ],
+      "mode": "all"
+    },
+    {
+      "id": "v8",
+      "type": "response",
+      "key": "llevar_ropa_ligera",
+      "name": "Ropa ligera",
+      "x": 1620,
+      "y": -60,
+      "status": "200",
+      "body": {
+        "pais": "{{pais.pais}}",
+        "capital": "{{pais.capital}}",
+        "moneda": "{{pais.moneda}}",
+        "temperatura": "{{resumen.temp}}",
+        "tasa": "{{resumen.tasa}}",
+        "presupuesto": "{{resumen.enMonedaLocal}}",
+        "consejo": "Hace {{resumen.temp}} °C en {{pais.capital}}: lleva ropa ligera"
+      }
+    },
+    {
+      "id": "v9",
+      "type": "response",
+      "key": "llevar_abrigo",
+      "name": "Abrigo",
+      "x": 1620,
+      "y": 160,
+      "status": "200",
+      "body": {
+        "pais": "{{pais.pais}}",
+        "capital": "{{pais.capital}}",
+        "moneda": "{{pais.moneda}}",
+        "temperatura": "{{resumen.temp}}",
+        "tasa": "{{resumen.tasa}}",
+        "presupuesto": "{{resumen.enMonedaLocal}}",
+        "consejo": "Hace {{resumen.temp}} °C en {{pais.capital}}: lleva abrigo"
+      }
+    },
+    {
+      "id": "v10",
+      "type": "response",
+      "key": "no_soportado",
+      "name": "País no soportado",
+      "x": 820,
+      "y": 360,
+      "status": "404",
+      "body": {
+        "error": "No tengo datos de «{{entrada.pais}}». Agrégalo en tablas/paises.csv"
+      }
+    },
+    {
+      "id": "v11",
+      "type": "response",
+      "key": "servicio_caido",
+      "name": "Servicio caído",
+      "x": 1100,
+      "y": 360,
+      "status": "502",
+      "body": {
+        "error": "Un servicio externo no respondió"
+      }
+    },
+    {
+      "id": "v12",
+      "type": "note",
+      "key": "nota",
+      "name": "Nota",
+      "x": 300,
+      "y": 300,
+      "text": "Datos del país sale de la tabla paises. Clima y Cambio corren en paralelo; Resumen espera a los dos (unión) y calcula en JavaScript. Servicios: Open-Meteo y ExchangeRate-API, sin llave."
+    }
+  ],
+  "edges": [
+    {
+      "from": "v0",
+      "port": "out",
+      "to": "v2"
+    },
+    {
+      "from": "v2",
+      "port": "out",
+      "to": "v3"
+    },
+    {
+      "from": "v3",
+      "port": "true",
+      "to": "v4"
+    },
+    {
+      "from": "v3",
+      "port": "true",
+      "to": "v5"
+    },
+    {
+      "from": "v3",
+      "port": "false",
+      "to": "v10"
+    },
+    {
+      "from": "v4",
+      "port": "out",
+      "to": "v6"
+    },
+    {
+      "from": "v5",
+      "port": "out",
+      "to": "v6"
+    },
+    {
+      "from": "v4",
+      "port": "error",
+      "to": "v11"
+    },
+    {
+      "from": "v5",
+      "port": "error",
+      "to": "v11"
+    },
+    {
+      "from": "v6",
+      "port": "out",
+      "to": "v7"
+    },
+    {
+      "from": "v7",
+      "port": "true",
+      "to": "v8"
+    },
+    {
+      "from": "v7",
+      "port": "false",
+      "to": "v9"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [
+    {
+      "id": "VIA-001",
+      "name": "Perú en soles",
+      "input": {
+        "pais": "Perú",
+        "montoUsd": 100
+      },
+      "expectStatus": 200,
+      "note": "La tasa PEN existe y el presupuesto se calcula",
+      "expect": [
+        {
+          "left": "moneda",
+          "op": "eq",
+          "right": "PEN"
+        },
+        {
+          "left": "tasa",
+          "op": "gt",
+          "right": "1"
+        },
+        {
+          "left": "presupuesto",
+          "op": "gt",
+          "right": "100"
+        }
+      ]
+    },
+    {
+      "id": "VIA-002",
+      "name": "Japón en yenes",
+      "input": {
+        "pais": "japón",
+        "montoUsd": 50
+      },
+      "expectStatus": 200,
+      "note": "La tabla no distingue mayúsculas",
+      "expect": [
+        {
+          "left": "moneda",
+          "op": "eq",
+          "right": "JPY"
+        },
+        {
+          "left": "capital",
+          "op": "eq",
+          "right": "Tokio"
+        }
+      ]
+    },
+    {
+      "id": "VIA-003",
+      "name": "País que no está",
+      "input": {
+        "pais": "Narnia",
+        "montoUsd": 10
+      },
+      "expectStatus": 404,
+      "note": "Sale por la rama de no soportado sin llamar servicios",
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "no_soportado"
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

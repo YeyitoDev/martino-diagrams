@@ -1,0 +1,17 @@
+meta {
+  name: Clima actual
+  id: CLI-001
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{meteoUrl}}/v1/forecast?latitude={{lat}}&longitude={{lng}}&current=temperature_2m,relative_humidity_2m,wind_speed_10m
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.current.temperature_2m: isDefined
+}

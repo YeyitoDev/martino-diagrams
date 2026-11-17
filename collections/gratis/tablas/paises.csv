@@ -1,0 +1,9 @@
+pais,codigo,capital,lat,lng,moneda,continente
+Perú,PE,Lima,-12.05,-77.04,PEN,América
+Chile,CL,Santiago,-33.45,-70.67,CLP,América
+Colombia,CO,Bogotá,4.71,-74.07,COP,América
+México,MX,Ciudad de México,19.43,-99.13,MXN,América
+Brasil,BR,Brasilia,-15.79,-47.88,BRL,América
+Estados Unidos,US,Washington,38.90,-77.04,USD,América
+España,ES,Madrid,40.42,-3.70,EUR,Europa
+Japón,JP,Tokio,35.68,139.69,JPY,Asia

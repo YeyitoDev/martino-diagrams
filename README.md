@@ -168,6 +168,26 @@ Para traducir códigos: `002 → BCP`, `PE → Perú`, `ACTIVO → A`.
 
 ---
 
+## Flujos de ejemplo (servicios gratis, sin llaves)
+
+La colección `collections/gratis` trae 3 flujos listos para ejecutar con el entorno **publico**. Cada uno tiene sus casos QA:
+
+| Flujo | Qué muestra | Servicios | Casos |
+|---|---|---|---|
+| **Viaje: clima y cambio por país** | Tabla `paises` → 2 servicios **en paralelo** → unión en JavaScript → condición | Open-Meteo, ExchangeRate-API | 3 (Perú, Japón, país que no existe) |
+| **Pago firmado y cifrado** | Tabla `bancos` → reglas → **JWS** → **JWE** → **HMAC** en header → envío → descifra y verifica el eco | httpbin | 3 (pago OK, banco inválido, monto alto) |
+| **Duelo pokémon** | 2 servicios en paralelo → unión → tabla `tipos` (inglés → español) → empate o ganador | PokéAPI | 4 (incluye 404 de un nombre inventado) |
+
+```bash
+martino flow gratis--viaje --env publico --cases
+martino flow gratis--pago-cifrado --env publico --cases
+martino flow gratis--duelo-pokemon --env publico --cases
+```
+
+> Las llaves del flujo de pago son **de prueba** y están en sus Variables. No las uses para nada real.
+
+---
+
 ## Línea de comandos
 
 ```bash

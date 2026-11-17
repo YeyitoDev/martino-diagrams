@@ -1,0 +1,450 @@
+{
+  "name": "Pago firmado y cifrado",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "p0",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 40,
+      "y": 40
+    },
+    {
+      "id": "p1",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 40,
+      "y": 200,
+      "data": {
+        "cliente": "Ana Quispe",
+        "monto": 250,
+        "moneda": "PEN",
+        "banco": "002"
+      }
+    },
+    {
+      "id": "p2",
+      "type": "lookup",
+      "key": "banco",
+      "name": "Banco destino",
+      "x": 300,
+      "y": 40,
+      "lookup": {
+        "table": "bancos",
+        "value": "{{entrada.banco}}",
+        "column": "codigo",
+        "onMiss": "default",
+        "default": "?"
+      }
+    },
+    {
+      "id": "p3",
+      "type": "condition",
+      "key": "banco_ok",
+      "name": "¿Banco existe?",
+      "x": 560,
+      "y": 40,
+      "rules": [
+        {
+          "left": "banco.nombre",
+          "op": "neq",
+          "right": "?"
+        }
+      ],
+      "mode": "all"
+    },
+    {
+      "id": "p4",
+      "type": "condition",
+      "key": "monto_ok",
+      "name": "¿Monto hasta 5000?",
+      "x": 820,
+      "y": 40,
+      "rules": [
+        {
+          "left": "entrada.monto",
+          "op": "lte",
+          "right": "5000"
+        },
+        {
+          "left": "entrada.monto",
+          "op": "gt",
+          "right": "0"
+        }
+      ],
+      "mode": "all"
+    },
+    {
+      "id": "p5",
+      "type": "transform",
+      "key": "pedido",
+      "name": "Armar pedido",
+      "x": 1080,
+      "y": 40,
+      "code": "return {\n  cliente: input.cliente,\n  monto: input.monto,\n  moneda: input.moneda,\n  banco: nodes.banco.nombre,\n  swift: nodes.banco.swift,\n};"
+    },
+    {
+      "id": "p6",
+      "type": "crypto",
+      "key": "firma",
+      "name": "Firmar (JWS HS256)",
+      "x": 1340,
+      "y": 40,
+      "crypto": {
+        "op": "sign",
+        "format": "jws",
+        "alg": "HS256",
+        "enc": "",
+        "key": "{{secreto_firma}}",
+        "input": "{{pedido}}",
+        "output": ""
+      }
+    },
+    {
+      "id": "p7",
+      "type": "crypto",
+      "key": "cifrado",
+      "name": "Cifrar (JWE dir)",
+      "x": 1600,
+      "y": 40,
+      "crypto": {
+        "op": "encrypt",
+        "format": "jwe",
+        "alg": "dir",
+        "enc": "A256GCM",
+        "key": "{{llave_aes}}",
+        "input": "{{firma}}",
+        "output": ""
+      }
+    },
+    {
+      "id": "p8",
+      "type": "crypto",
+      "key": "huella",
+      "name": "HMAC del cuerpo",
+      "x": 1860,
+      "y": 40,
+      "crypto": {
+        "op": "sign",
+        "format": "hmac",
+        "alg": "SHA-256",
+        "enc": "",
+        "key": "{{secreto_firma}}",
+        "input": "{{cifrado}}",
+        "output": "hex"
+      }
+    },
+    {
+      "id": "p9",
+      "type": "request",
+      "key": "enviar",
+      "name": "Enviar al banco (eco)",
+      "x": 2120,
+      "y": 40,
+      "ref": "Pagos/Enviar-pago.bru",
+      "vars": [
+        {
+          "name": "token",
+          "value": "{{cifrado}}"
+        },
+        {
+          "name": "firma",
+          "value": "{{huella}}"
+        }
+      ]
+    },
+    {
+      "id": "p10",
+      "type": "crypto",
+      "key": "abrir",
+      "name": "Descifrar el eco",
+      "x": 2380,
+      "y": 40,
+      "crypto": {
+        "op": "decrypt",
+        "format": "jwe",
+        "alg": "",
+        "enc": "",
+        "key": "{{llave_aes}}",
+        "input": "{{enviar.response.json.token}}",
+        "output": ""
+      }
+    },
+    {
+      "id": "p11",
+      "type": "crypto",
+      "key": "verificado",
+      "name": "Verificar firma",
+      "x": 2640,
+      "y": 40,
+      "crypto": {
+        "op": "verify",
+        "format": "jws",
+        "alg": "HS256",
+        "enc": "",
+        "key": "{{secreto_firma}}",
+        "input": "{{abrir}}",
+        "output": ""
+      }
+    },
+    {
+      "id": "p12",
+      "type": "condition",
+      "key": "intacto",
+      "name": "¿Llegó igual?",
+      "x": 2900,
+      "y": 40,
+      "rules": [
+        {
+          "left": "verificado.monto",
+          "op": "eq",
+          "right": "{{entrada.monto}}"
+        },
+        {
+          "left": "verificado.swift",
+          "op": "eq",
+          "right": "{{banco.swift}}"
+        }
+      ],
+      "mode": "all"
+    },
+    {
+      "id": "p13",
+      "type": "response",
+      "key": "enviado",
+      "name": "Pago enviado",
+      "x": 3160,
+      "y": -60,
+      "status": "201",
+      "body": {
+        "estado": "ENVIADO",
+        "banco": "{{banco.nombre}}",
+        "swift": "{{banco.swift}}",
+        "monto": "{{entrada.monto}}",
+        "firmaRecibida": "{{enviar.response.headers.X-Firma}}",
+        "verificado": true
+      }
+    },
+    {
+      "id": "p14",
+      "type": "response",
+      "key": "alterado",
+      "name": "Pedido alterado",
+      "x": 3160,
+      "y": 160,
+      "status": "500",
+      "body": {
+        "error": "El eco no coincide con lo enviado"
+      }
+    },
+    {
+      "id": "p15",
+      "type": "response",
+      "key": "banco_invalido",
+      "name": "Banco inválido",
+      "x": 560,
+      "y": 300,
+      "status": "422",
+      "body": {
+        "error": "El banco {{entrada.banco}} no está en tablas/bancos.csv"
+      }
+    },
+    {
+      "id": "p16",
+      "type": "response",
+      "key": "requiere_aprobacion",
+      "name": "Requiere aprobación",
+      "x": 820,
+      "y": 300,
+      "status": "409",
+      "body": {
+        "error": "Montos sobre 5000 o en cero necesitan aprobación manual",
+        "monto": "{{entrada.monto}}"
+      }
+    },
+    {
+      "id": "p17",
+      "type": "response",
+      "key": "banco_caido",
+      "name": "Banco no responde",
+      "x": 2120,
+      "y": 300,
+      "status": "502",
+      "body": {
+        "error": "httpbin no respondió"
+      }
+    },
+    {
+      "id": "p18",
+      "type": "note",
+      "key": "nota",
+      "name": "Nota",
+      "x": 1340,
+      "y": 260,
+      "text": "Cadena real de una integración bancaria: firma JWS, cifra en JWE, firma el cuerpo con HMAC (header X-Firma), lo envía a httpbin (que devuelve el eco) y al volver descifra y verifica que nada cambió. Las llaves son de prueba y están en Variables del flujo: para llaves reales usa secretos del entorno."
+    }
+  ],
+  "edges": [
+    {
+      "from": "p0",
+      "port": "out",
+      "to": "p2"
+    },
+    {
+      "from": "p2",
+      "port": "out",
+      "to": "p3"
+    },
+    {
+      "from": "p3",
+      "port": "true",
+      "to": "p4"
+    },
+    {
+      "from": "p3",
+      "port": "false",
+      "to": "p15"
+    },
+    {
+      "from": "p4",
+      "port": "true",
+      "to": "p5"
+    },
+    {
+      "from": "p4",
+      "port": "false",
+      "to": "p16"
+    },
+    {
+      "from": "p5",
+      "port": "out",
+      "to": "p6"
+    },
+    {
+      "from": "p6",
+      "port": "out",
+      "to": "p7"
+    },
+    {
+      "from": "p7",
+      "port": "out",
+      "to": "p8"
+    },
+    {
+      "from": "p8",
+      "port": "out",
+      "to": "p9"
+    },
+    {
+      "from": "p9",
+      "port": "out",
+      "to": "p10"
+    },
+    {
+      "from": "p9",
+      "port": "error",
+      "to": "p17"
+    },
+    {
+      "from": "p10",
+      "port": "out",
+      "to": "p11"
+    },
+    {
+      "from": "p11",
+      "port": "out",
+      "to": "p12"
+    },
+    {
+      "from": "p12",
+      "port": "true",
+      "to": "p13"
+    },
+    {
+      "from": "p12",
+      "port": "false",
+      "to": "p14"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [
+    {
+      "id": "PAG-001",
+      "name": "Pago normal al BCP",
+      "input": {
+        "cliente": "Ana Quispe",
+        "monto": 250,
+        "moneda": "PEN",
+        "banco": "002"
+      },
+      "expectStatus": 201,
+      "note": "Firma, cifra, envía y verifica el eco",
+      "expect": [
+        {
+          "left": "banco",
+          "op": "eq",
+          "right": "BCP"
+        },
+        {
+          "left": "verificado",
+          "op": "eq",
+          "right": "true"
+        }
+      ]
+    },
+    {
+      "id": "PAG-002",
+      "name": "Banco inexistente",
+      "input": {
+        "cliente": "Luis Rojas",
+        "monto": 100,
+        "moneda": "PEN",
+        "banco": "999"
+      },
+      "expectStatus": 422,
+      "note": "La tabla no tiene el código: no se cifra ni se envía nada",
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "banco_invalido"
+        }
+      ]
+    },
+    {
+      "id": "PAG-003",
+      "name": "Monto alto",
+      "input": {
+        "cliente": "Rosa Díaz",
+        "monto": 9000,
+        "moneda": "PEN",
+        "banco": "011"
+      },
+      "expectStatus": 409,
+      "note": "Sobre 5000 pide aprobación",
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "requiere_aprobacion"
+        }
+      ]
+    }
+  ],
+  "vars": [
+    {
+      "name": "llave_aes",
+      "value": "+fSHevkhqgh9YrsTsRimXybmZemTi/uz2Ry0e5qOpiw="
+    },
+    {
+      "name": "secreto_firma",
+      "value": "125ed518f6895a3a98fd05978d8542ed313480b9"
+    }
+  ]
+}

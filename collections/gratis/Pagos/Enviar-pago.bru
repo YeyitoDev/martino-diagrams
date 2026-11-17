@@ -1,0 +1,22 @@
+meta {
+  name: Enviar pago
+  id: PAG-001
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{ecoUrl}}/anything/pagos
+  body: json
+  auth: none
+}
+
+headers {
+  X-Firma: {{firma}}
+}
+
+body:json {
+  {
+    "token": "{{token}}"
+  }
+}

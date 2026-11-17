@@ -1,0 +1,12 @@
+meta {
+  name: Obtener pokémon
+  id: POK-001
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{pokeUrl}}/api/v2/pokemon/{{nombre}}
+  body: none
+  auth: none
+}
