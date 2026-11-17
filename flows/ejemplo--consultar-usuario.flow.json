@@ -1,0 +1,125 @@
+{
+  "name": "Ejemplo: consultar usuario",
+  "collection": "demo",
+  "nodes": [
+    {
+      "id": "e0",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 40.0,
+      "y": 120.0
+    },
+    {
+      "id": "e1",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 40.0,
+      "y": 260.0,
+      "data": {
+        "userId": 1
+      }
+    },
+    {
+      "id": "e2",
+      "type": "request",
+      "key": "usuario",
+      "name": "Obtener usuario",
+      "x": 320.0,
+      "y": 120.0,
+      "ref": "Usuarios/Obtener-usuario.bru",
+      "vars": [
+        {
+          "name": "userId",
+          "value": "{{entrada.userId}}"
+        }
+      ]
+    },
+    {
+      "id": "e3",
+      "type": "condition",
+      "key": "existe",
+      "name": "¿Tiene correo?",
+      "x": 600.0,
+      "y": 120.0,
+      "rules": [
+        {
+          "left": "usuario.response.email",
+          "op": "isDefined",
+          "right": ""
+        }
+      ],
+      "mode": "all"
+    },
+    {
+      "id": "e4",
+      "type": "response",
+      "key": "ok",
+      "name": "Respuesta 200",
+      "x": 900.0,
+      "y": 60.0,
+      "status": "200",
+      "body": {
+        "id": "{{usuario.response.id}}",
+        "nombre": "{{usuario.response.name}}",
+        "correo": "{{usuario.response.email}}"
+      }
+    },
+    {
+      "id": "e5",
+      "type": "response",
+      "key": "no_existe",
+      "name": "Respuesta 404",
+      "x": 900.0,
+      "y": 300.0,
+      "status": "404",
+      "body": {
+        "error": "Usuario {{entrada.userId}} no encontrado"
+      }
+    },
+    {
+      "id": "e6",
+      "type": "note",
+      "key": "nota",
+      "name": "Nota",
+      "x": 360.0,
+      "y": 510.0,
+      "text": "Cambia userId a 999 en la Entrada y ejecuta: el servicio da 404 y el flujo sale por la rama de error."
+    }
+  ],
+  "edges": [
+    {
+      "from": "e0",
+      "port": "out",
+      "to": "e2"
+    },
+    {
+      "from": "e2",
+      "port": "out",
+      "to": "e3"
+    },
+    {
+      "from": "e2",
+      "port": "error",
+      "to": "e5"
+    },
+    {
+      "from": "e3",
+      "port": "true",
+      "to": "e4"
+    },
+    {
+      "from": "e3",
+      "port": "false",
+      "to": "e5"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [],
+  "vars": []
+}

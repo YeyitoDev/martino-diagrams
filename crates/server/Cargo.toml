@@ -1,0 +1,33 @@
+[package]
+name = "martino"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+martino-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots", "stream", "gzip", "json"] }
+rust-embed = { version = "8", features = ["mime-guess"] }
+clap = { version = "4", features = ["derive"] }
+rquickjs = "0.9"
+base64 = "0.22"
+flate2 = "1"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+chrono = "0.4"
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+aes-gcm = "0.10"
+aes = "0.8"
+aes-kw = { version = "0.2", features = ["alloc"] }
+hmac = "0.12"
+sha2 = "0.10"
+sha1 = "0.10"
+cbc = { version = "0.1", features = ["alloc"] }
+
+[dev-dependencies]
+tempfile = "3"

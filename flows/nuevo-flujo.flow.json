@@ -1,0 +1,23 @@
+{
+  "name": "Nuevo flujo",
+  "collection": "demo",
+  "nodes": [
+    {
+      "id": "71604e534f",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 40.0,
+      "y": 20.0,
+      "data": {}
+    }
+  ],
+  "edges": [],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [],
+  "vars": []
+}

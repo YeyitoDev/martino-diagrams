@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/server", "crates/web"]
+# El crate web solo compila a wasm32 (trunk); `cargo test` cubre core + server.
+default-members = ["crates/core", "crates/server"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+martino-core = { path = "crates/core" }
+
+[profile.release]
+opt-level = 3
+
+[profile.release.package.martino-web]
+opt-level = "z"

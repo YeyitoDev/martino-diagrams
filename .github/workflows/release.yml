@@ -1,0 +1,45 @@
+# Al subir un tag v* (p. ej. `git tag v0.1.0 && git push --tags`) compila Martino con la UI
+# embebida para Mac (universal) y Windows, y publica los ejecutables en el Release del tag.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            asset: martino-mac
+          - os: windows-latest
+            targets: x86_64-pc-windows-msvc
+            asset: martino-windows.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,${{ matrix.targets }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      - name: UI (wasm)
+        working-directory: crates/web
+        run: trunk build --release
+      - name: Mac universal
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release -p martino --target aarch64-apple-darwin
+          cargo build --release -p martino --target x86_64-apple-darwin
+          lipo -create -output ${{ matrix.asset }} target/aarch64-apple-darwin/release/martino target/x86_64-apple-darwin/release/martino
+      - name: Windows
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --release -p martino --target x86_64-pc-windows-msvc
+          cp target/x86_64-pc-windows-msvc/release/martino.exe ${{ matrix.asset }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset }}

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Martino</title>
+  <meta name="theme-color" content="#0d0d0e" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <script>
+    try { const t = localStorage.getItem('martino.theme'); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+  </script>
+  <link data-trunk rel="css" href="styles.css" />
+  <link data-trunk rel="copy-dir" href="icons" />
+  <link data-trunk rel="copy-file" href="manifest.webmanifest" />
+  <link data-trunk rel="copy-file" href="sw.js" />
+  <link data-trunk rel="rust" data-wasm-opt="z" />
+</head>
+<body></body>
+</html>

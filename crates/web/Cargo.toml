@@ -1,0 +1,16 @@
+[package]
+name = "martino-web"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+martino-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+leptos = { version = "0.8", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+gloo-events = "0.2"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlSelectElement", "Headers", "Request", "RequestInit", "Response", "ReadableStream", "ReadableStreamDefaultReader", "DomRect", "DomRectList", "KeyboardEvent", "MouseEvent", "PointerEvent", "DragEvent", "DataTransfer", "ClipboardEvent", "WheelEvent", "Clipboard", "Navigator", "Storage", "CssStyleDeclaration", "FileReader", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "NodeList", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition", "ServiceWorkerContainer", "Location", "MediaQueryList", "AbortController", "AbortSignal", "TextDecoder", "DomTokenList", "Event", "EventInit", "EventTarget", "InputEvent", "FocusEvent", "CanvasRenderingContext2d", "HtmlCanvasElement", "TextMetrics", "Selection", "Range"] }

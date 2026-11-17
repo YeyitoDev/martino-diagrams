@@ -1,0 +1,8 @@
+[build]
+target = "index.html"
+dist = "dist"
+# Nombres fijos: sw.js cachea la lista SHELL por nombre.
+filehash = false
+
+[serve]
+port = 4401

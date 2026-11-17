@@ -1,0 +1,20 @@
+meta {
+  name: Obtener usuario
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/users/{{userId}}
+  body: none
+  auth: none
+}
+
+vars:post-response {
+  userName: res.body.name
+}
+
+assert {
+  res.status: eq 200
+  res.body.id: isDefined
+}
