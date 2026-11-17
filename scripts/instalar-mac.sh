@@ -45,7 +45,7 @@ cat > "$PLIST" <<EOF
 EOF
 chmod 600 "$PLIST"
 
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null && sleep 2 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 # serve = sólo tu tailnet. Nunca funnel: Martino lee archivos y llama a cualquier URL.

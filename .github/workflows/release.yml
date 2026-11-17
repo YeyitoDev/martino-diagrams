@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-14
+          - os: macos-latest
             targets: aarch64-apple-darwin,x86_64-apple-darwin
             asset: martino-mac
           - os: windows-latest
