@@ -7,6 +7,8 @@ default-members = ["crates/core", "crates/server"]
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
+license = "AGPL-3.0-only"
+repository = "https://github.com/YeyitoDev/martino-diagrams"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
