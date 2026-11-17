@@ -29,7 +29,7 @@ Un solo ejecutable, sin cuenta y sin nube: tus colecciones son archivos `.bru` e
 | Casos QA desde un CSV | ⚠️ Runner | ⚠️ | ✅ con comparación de respuesta |
 | JWE / JWS / AES / RSA sin escribir scripts | ❌ | ❌ | ✅ |
 | Tablas de equivalencia (códigos ⇄ nombres) | ❌ | ❌ | ✅ |
-| Un ejecutable de ~13 MB, la UI va adentro | ❌ | ❌ (Electron) | ✅ |
+| Un solo ejecutable (12 MB en Windows, 27 MB en Mac universal), la UI va adentro | ❌ | ❌ (Electron) | ✅ |
 
 ---
 
@@ -39,8 +39,8 @@ Cada versión publica los ejecutables en **[Releases](https://github.com/YeyitoD
 
 | Sistema | Archivo | Nota |
 |---|---|---|
-| macOS (Apple Silicon e Intel) | `martino-mac` | Binario universal |
-| Windows 10/11 | `martino-windows.exe` | |
+| macOS (Apple Silicon e Intel) | `martino-mac` | Binario universal, 27 MB |
+| Windows 10/11 | `martino-windows.exe` | 12 MB |
 
 **Primera vez en Mac:** el ejecutable no está firmado por Apple. Dale permiso así:
 
