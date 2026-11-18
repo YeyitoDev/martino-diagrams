@@ -1,7 +1,22 @@
-# Martino
+<p align="center">
+  <img src="docs/img/logo.svg" alt="Martino" width="96" height="96">
+</p>
 
-**Cliente HTTP local, compatible con Bruno, con flujos visuales, casos QA y cifrado.**
-Un solo ejecutable, sin cuenta y sin nube: tus colecciones son archivos `.bru` en tu disco y van a git.
+<h1 align="center">Martino</h1>
+
+<p align="center">
+  <b>Cliente HTTP local, compatible con Bruno, con flujos visuales, casos QA y cifrado.</b><br>
+  Un solo ejecutable, sin cuenta y sin nube: tus colecciones son archivos de texto (<code>.yml</code> o <code>.bru</code>) en tu disco y van a git.
+</p>
+
+<p align="center">
+  <a href="https://github.com/YeyitoDev/martino-diagrams/releases/latest">Descargar</a> ·
+  <a href="https://yeyitodev.github.io/martino-diagrams/">Sitio y planes</a> ·
+  <a href="#funciones">Funciones</a> ·
+  <a href="LICENSE">AGPL-3.0</a>
+</p>
+
+![Editor de flujos: pasos tipo ficha con su ID, carriles por etapa y el recorrido de una ejecución en verde](docs/img/flujo-lienzo.jpg)
 
 ```
  ┌─ Colección (.bru) ─┐     ┌──────── Flujo visual ────────────────────────────────┐
@@ -23,7 +38,7 @@ Un solo ejecutable, sin cuenta y sin nube: tus colecciones son archivos `.bru` e
 
 | | Postman | Bruno | **Martino** |
 |---|---|---|---|
-| Colecciones en archivos de texto (git) | ❌ nube | ✅ `.bru` | ✅ **los mismos `.bru`** |
+| Colecciones en archivos de texto (git) | ❌ nube | ✅ `.yml` / `.bru` | ✅ **los mismos archivos** |
 | Funciona sin cuenta ni internet | ⚠️ | ✅ | ✅ |
 | Encadenar peticiones en un diagrama | ⚠️ Flows (pago) | ❌ | ✅ |
 | Casos QA desde un CSV | ⚠️ Runner | ⚠️ | ✅ con comparación de respuesta |
@@ -86,7 +101,9 @@ mi-proyecto/
 
 ### Peticiones
 
-- **Compatible con Bruno:** lee y escribe `.bru` (método, URL, headers, query, body JSON/texto/form, auth básica y bearer, `vars:pre-request`, `vars:post-response`, asserts).
+![Peticiones en paneles lado a lado, con los IDs y las variables pintadas según su origen](docs/img/peticiones.jpg)
+
+- **Compatible con Bruno:** las peticiones nuevas se guardan en **YAML** (el formato OpenCollection de Bruno, `.yml`) y las que ya tienes en `.bru` se siguen leyendo y guardando como `.bru`. Método, URL, headers, query, body JSON/texto/form, auth básica y bearer, variables y asserts.
 - **Variables con colores:** cada `{{var}}` muestra de dónde sale. El orden de prioridad es:
   `runtime > vars:pre-request > entorno (secretos incluidos) > collection.bru > .env`.
 - **cURL de ida y vuelta:** pega un cURL y se vuelve petición; cualquier petición se copia como cURL.
@@ -103,34 +120,48 @@ Lo que pegas de un cURL se abre como **temporal** (borde punteado, etiqueta `TMP
 | Traía un ID libre (`PAG-014`) | **Se respeta** |
 | Traía un ID ya usado | Te propone el siguiente libre y te lo dice |
 
-El ID se guarda como `meta { id: USU-002 }` en el `.bru`, y aparece en el árbol y en la pestaña.
+El ID se guarda en el archivo de la petición (`info.id` en `.yml`, `meta { id }` en `.bru`) y aparece en el árbol, en la pestaña y en el paso del flujo que la usa.
 
 ### Flujos visuales
 
-Encadena peticiones arrastrando cajas. Cada paso puede usar lo que devolvieron los anteriores: `{{cuenta.response.body.id}}`.
+Encadena peticiones como pasos de un diagrama. Cada paso puede usar lo que devolvieron los anteriores: `{{cuenta.response.id}}`.
+
+- **Cada paso es una ficha** con su **ID fijo** (`SRV-01`, `CND-02`, `EQV-01`; un Servicio muestra el ID de su petición, `PAG-001`), la **forma de su tipo** y **una frase** que dice qué hace: «Busca entrada.banco en la tabla bancos», «Sigue si entrada.monto ≤ 5000».
+- **Carriles por etapa:** **⇶ Ordenar** acomoda cada paso en su fase, *Datos → Validar → Preparar → Enviar → Responder*, y lo deshaces con Ctrl+Z.
+- **Ejecutar se ve:** el camino recorrido se pinta en verde, lo que no corrió se apaga y **el gato narra** cada paso («Paso 8 · PAG-001 Enviar al banco: 200 · 184 ms»).
+- **Añadir pasos:** botón **«＋ Añadir paso»** (menú por grupos, con nombre y para qué sirve) o **`/`** para buscarlo por lo que quieres hacer: «cifrar», «si», «llamar».
+- **Columna de Servicios:** las peticiones de la colección, filtrables por nombre o ID; clic o arrastrar crea el paso.
+- **Pegar un cURL** sobre el lienzo (Ctrl+V) o en «＋ Añadir paso» crea un Servicio con esa petición.
+- **Entrada siempre a la vista**, con **escenarios** (código y nombre) que cambian los valores de un clic; se oculta con ▾.
+- **Condiciones legibles:** «Si `entrada.monto` *Menor o igual que (LTE)* `5000` Y si…», con varias reglas Y/O; tras ejecutar, cada regla dice su valor y si se cumple.
+- **Mapeo sin errores:** clic en un campo de la respuesta copia su `{{ruta}}`; al pegarla en otro paso se ve su valor debajo; escribir `entrada.` autocompleta los campos.
+- **Buscador del lienzo**, **nodos redimensionables** y **respuesta recortada** bajo cada paso (sólo los campos que usa alguien).
+- **YAML legible:** cada flujo se puede ver y editar como YAML en español.
 
 | Paso | Qué hace |
 |---|---|
-| **Entrada** | Datos con los que arranca el flujo (el «input» de cada caso QA) |
-| **Servicio** | Ejecuta una petición de la colección; tiene salida `siguiente` y `error` |
-| **Extraer** | Saca valores de una respuesta con rutas tipo `body.items[0].id` |
-| **Condición** | Bifurca en `sí` / `no` (igual, contiene, mayor que, existe…) |
-| **Datos fijos** | Un JSON constante |
-| **Transformar** | Arma un JSON nuevo con plantillas `{{…}}` |
-| 🔒 **Cifrado** | Cifra, descifra, firma o verifica (ver abajo) |
-| ⇆ **Equivalencia** | Busca un valor en una tabla (ver abajo) |
-| **Respuesta** | Lo que devuelve el flujo (se compara en los casos QA) |
-| **Fin** | Termina la rama |
-| **Nota / Imagen** | Documentación dentro del diagrama |
+| **Entrada** `ENT` | Datos con los que arranca el flujo (el «input» de cada caso QA) |
+| **Servicio** `SRV` | Ejecuta una petición; salida `siguiente` y `error` |
+| **Extraer** `EXT` | Guarda valores de una respuesta en variables |
+| **Condición** `CND` | Bifurca en `sí` / `no` con una o varias reglas (Y / O) |
+| **Datos fijos** `DAT` | Un JSON constante |
+| **Transformar** `TRF` | JavaScript que arma datos nuevos con `nodes`, `input` y `env` |
+| 🔒 **Cifrado** `CIF` | Cifra, descifra, firma o verifica (ver abajo) |
+| ⇆ **Equivalencia** `EQV` | Busca un valor en una tabla (ver abajo) |
+| **Respuesta** `RES` | Lo que devuelve el flujo (se compara en los casos QA) |
+| **Fin** `FIN` · **Nota** `NOT` | Termina la rama · documentación en el diagrama |
 
-**Respuesta recortada en el lienzo:** después de ejecutar, debajo de cada caja aparecen **sólo los campos que usa alguien**:
-azul = otra caja, naranja = una condición, amarillo = fijado por ti. El selector *Lo usado / Todo / Nada* cambia la vista.
+![Menú «＋ Añadir paso» con cada tipo, su forma y para qué sirve; abajo, la caja para pegar un cURL](docs/img/anadir-paso.jpg)
 
-**YAML legible:** cada flujo se puede ver y editar como YAML en español (`tipo: servicio`, `siguiente: [a, b]`).
+**Vista Historia:** el mismo flujo como pasos numerados por etapa, con las salidas de error al costado. Sirve para explicarlo a quien no programa (botón **Lienzo | Historia**).
+
+![Vista Historia: pasos numerados agrupados por etapa, con «Si no: RES-03 · Banco inválido» al costado](docs/img/flujo-historia.jpg)
 
 ### Casos QA
 
-Cada flujo tiene una tabla de casos: **entrada → resultado esperado**.
+Cada flujo tiene una tabla de casos: **entrada → resultado esperado**. Los mismos casos son los escenarios de la Entrada.
+
+![Casos QA: lista de casos que pasan, lo que se envía, lo que se espera y lo que salió](docs/img/casos-qa.jpg)
 
 - Se cargan desde un **CSV** (Martino te da la plantilla con las columnas correctas).
 - Comparación **por campos** o contra la respuesta esperada completa, con campos a ignorar (fechas, ids).
@@ -163,8 +194,17 @@ Para traducir códigos: `002 → BCP`, `PE → Perú`, `ACTIVO → A`.
 
 - Son CSV en `collections/<col>/tablas/`; la primera fila son los nombres de las columnas.
 - Se editan como hoja de cálculo dentro de Martino (cada celda se guarda sola) o se importan desde un CSV.
-- El paso ⇆ **Equivalencia** busca en cualquier columna (sirve al revés), sin importar mayúsculas ni espacios, y devuelve la fila completa: `{{banco.nombre}}`, `{{banco.swift}}`.
+- El paso ⇆ **Equivalencia** muestra la tabla con la columna que **ENTRA** y las que **SALEN**, resalta la fila encontrada y deja **probar** otro valor. Clic en un encabezado busca por esa columna (al revés). No distingue mayúsculas ni espacios y devuelve la fila completa: `{{banco.nombre}}`, `{{banco.swift}}`.
 - **Si no está:** detener el flujo con un error claro, dejar el valor igual o usar un valor por defecto.
+- **Sin paso, en cualquier campo** (URL, header, body, condición):
+
+  ```
+  {{tabla.bancos[entrada.banco].nombre}}            → BCP
+  {{tabla.bancos[nombre=BBVA].codigo}}              → 011   (al revés)
+  {{tabla.bancos.buscar("nombre", "BBVA").swift}}   → BCONPEPL
+  ```
+
+![Equivalencia: la tabla bancos con ENTRA código y SALE nombre y swift, la fila 002 resaltada y el resultado de probar](docs/img/equivalencia.jpg)
 
 ---
 
@@ -221,8 +261,8 @@ Para usarlo desde otro equipo existe el **modo público**: acepta peticiones que
                                    ?key=… la primera vez, luego cookie HttpOnly por 12 h
 ```
 
-> ⚠️ **No lo expongas a internet abierto** (ni Tailscale Funnel ni un puerto público): Martino puede leer y
-> escribir archivos de su carpeta y hacer peticiones a cualquier URL de tu red interna.
+> ⚠️ **No lo expongas a internet sin llave:** Martino puede leer y escribir archivos de su carpeta y hacer
+> peticiones a cualquier URL. Para un servidor en la nube usa el modo de [Fly](#en-fly-internet-con-llave), que exige la llave siempre.
 
 ### En una Mac (servicio permanente + Tailscale)
 
@@ -246,6 +286,22 @@ Volver a correrlo **actualiza** a la última versión y conserva la llave y los 
 launchctl bootout gui/$(id -u)/dev.martino && rm ~/Library/LaunchAgents/dev.martino.plist
 tailscale serve --https=4400 off
 ```
+
+### En Fly (internet, con llave)
+
+Martino también corre en [Fly.io](https://fly.io) como `https://martino.fly.dev`, **siempre con llave**:
+
+- `MARTINO_BIND=0.0.0.0` sólo funciona en modo público, y **entonces la llave se pide a todo el mundo**, también a quien diga ser `127.0.0.1`.
+- `MARTINO_PUBLIC_HOST` acepta sólo tu dominio exacto.
+- Los datos viven en un volumen (`/data`); la primera vez se llena con las colecciones y flujos de ejemplo.
+
+Una sola vez, desde una terminal con sesión en Fly (`fly auth login`) y en GitHub (`gh auth login`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/YeyitoDev/martino-diagrams/master/scripts/fly-setup.sh | bash
+```
+
+[`scripts/fly-setup.sh`](scripts/fly-setup.sh) crea la app y el volumen, genera la llave, guarda el token de despliegue como secreto `FLY_API_TOKEN` del repo y te muestra tu enlace `https://martino.fly.dev/?key=…`. Desde ahí, **cada push a `master` se despliega solo**: el workflow [`deploy.yml`](.github/workflows/deploy.yml) compila, corre las pruebas y despliega. Archivos: [`fly.toml`](fly.toml), [`deploy/`](deploy).
 
 ### A mano (cualquier sistema)
 
@@ -280,14 +336,15 @@ cargo test                                 # núcleo + servidor
 ```
 crates/
 ├── core/    martino-core: modelo y lógica pura, compila a nativo y a WASM
-│            .bru ⇄ modelo · cURL · Postman · flujos y su YAML · casos QA · CSV
-│            plantillas {{…}} · qué campos usa cada paso · tablas · specs de cifrado
+│            .yml/.bru ⇄ modelo · cURL · Postman · flujos y su YAML · casos QA · CSV
+│            plantillas {{…}} (también {{tabla.…}}) · qué campos usa cada paso · tablas
+│            IDs de pasos y carriles por etapa · specs de cifrado
 ├── server/  martino: axum + CLI. Ejecuta peticiones (reqwest), corre flujos,
 │            guarda en disco, cifra (RustCrypto) y embebe la UI ya compilada
 └── web/     martino-web: UI en Leptos 0.8 (CSR → WASM), instalable como PWA
 ```
 
-- **Una sola lógica:** el parser `.bru`, las plantillas y las reglas de los flujos viven en `core`; la UI y el servidor usan el mismo código.
+- **Una sola lógica:** los formatos de petición, las plantillas y las reglas de los flujos viven en `core`; la UI y el servidor usan el mismo código.
 - **Disco como base de datos:** no hay base de datos. Colecciones = carpetas de Bruno, flujos = JSON, estado = `.workbench/`.
 - **Borrar no destruye:** una colección borrada va a `.workbench/papelera/`, con sus secretos.
 

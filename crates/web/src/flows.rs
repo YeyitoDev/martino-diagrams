@@ -301,6 +301,11 @@ impl Ed {
         let changed = flow::modernize_refs(&mut f);
         // Flujos de antes: cada paso recibe su código fijo; se guarda con el próximo guardado.
         martino_core::layout::assign_codes(&mut f);
+        // El flujo corre con las peticiones y entornos de su colección: se activa al abrirlo
+        // (el entorno se ajusta solo si no existe en ella).
+        if !f.collection.is_empty() && app().collection.get_untracked() != f.collection {
+            app().collection.set(f.collection.clone());
+        }
         self.id.set(id.clone());
         self.flow.set(f);
         self.dirty.set(changed > 0);
