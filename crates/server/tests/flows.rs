@@ -82,7 +82,7 @@ async fn error_port_end_and_compare() {
     resp.body = json!({"id": "{{entrada.uid}}", "name": "Ana", "tags": ["x"]});
     let mut f = Flow { collection: col, nodes: vec![node("start", "start"), entrada, resp], ..Default::default() };
     f.edges = vec![edge("start", "out", "r")];
-    f.global = Some(Global { req_ref: "global.bru".into() });
+    f.global = Some(Global { req_ref: "global.yml".into() });
     let r = run(&e, &f, true).await;
     assert_eq!(r.verdict, "DIFERENTE");
     assert_eq!(r.compare.as_ref().unwrap().diffs[0].path, "tags[0]");

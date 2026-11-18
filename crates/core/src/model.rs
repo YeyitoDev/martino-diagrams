@@ -50,7 +50,7 @@ pub struct Auth {
     pub password: String,
 }
 
-/// Una petición `.bru`. También representa `collection.bru` y `folder.bru` (sin método).
+/// Una petición (`.yml` o `.bru`). También representa `collection.bru` y `folder.bru` (sin método).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Request {

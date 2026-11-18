@@ -20,32 +20,56 @@ pub const DND_REQ: &str = "application/x-martino-request";
 pub fn Sidebar() -> impl IntoView {
     let a = app();
     let filter = RwSignal::new(String::new());
+    // Flujos de cada colección; se recargan al cambiar de modo o de flujo (crear, borrar, renombrar pasa por ahí).
+    let flows = RwSignal::new(Vec::<Value>::new());
+    Effect::new(move |_| {
+        a.mode.track();
+        a.flow_open.track();
+        spawn_local(async move { flows.set(api::get::<Vec<Value>>("/api/flows").await.unwrap_or_default()) });
+    });
     view! {
         <aside class="side" style:width=move || format!("{}px", a.sidebar_w.get()) style:display={move || if a.sidebar.get() { "flex" } else { "none" }}>
             <div class="head">
-                <input class="in grow" placeholder="Buscar petición…" data-noac prop:value=move || filter.get() on:input=move |e| filter.set(event_target_value(&e)) />
+                <input class="in grow" placeholder="Buscar petición o flujo…" data-noac prop:value=move || filter.get() on:input=move |e| filter.set(event_target_value(&e)) />
                 <button class="btn ghost sm" title="Nueva colección" on:click=move |_| new_collection()>"＋"</button>
-                <button class="btn ghost sm" title="Importar (Postman / .bru)" on:click=move |_| a.modal.set(Some(Modal::Import))>"⇣"</button>
+                <button class="btn ghost sm" title="Importar (Postman / .yml / .bru)" on:click=move |_| a.modal.set(Some(Modal::Import))>"⇣"</button>
+            </div>
+            <div class="side-filt">
+                <span class="seg">
+                    {[("todo", "Todo"), ("peticiones", "Peticiones"), ("flujos", "Flujos")].into_iter().map(|(k, l)| view! {
+                        <button class:on=move || a.side_kind.get() == k on:click=move |_| a.side_kind.set(k)>{l}</button>
+                    }).collect_view()}
+                </span>
+                <span class="grow"></span>
+                {move || {
+                    let n = a.dirty_panels().len() + a.flow_dirty.get() as usize;
+                    view! {
+                        <button class="btn ghost sm" class:hot={n > 0} disabled={n == 0} title={if n > 0 { format!("Guardar {n} con cambios (peticiones y flujo)") } else { "Todo guardado".into() }}
+                            on:click=move |_| a.save_everything()>{if n > 0 { format!("💾 {n}") } else { "💾".into() }}</button>
+                    }
+                }}
             </div>
             <div class="scroll">
                 <crate::temporales::TempList />
                 <For each=move || a.collections.get() key=|c| (c.id.clone(), c.items.len(), format!("{:?}", c.items)) children=move |c: Collection| {
                     let id = c.id.clone();
-                    let open = RwSignal::new(true);
+                    let ko = id.clone();
+                    let open = Signal::derive(move || !a.side_closed.with(|s| s.contains(&ko)));
                     let id2 = id.clone();
                     let id3 = id.clone();
                     let id4 = id.clone();
                     let items = c.items.clone();
                     view! {
                         <div>
-                            <div class="tree-row col" class:on=move || a.collection.get() == id
-                                on:click=move |_| { open.update(|o| *o = !*o); a.collection.set(id2.clone()); }
+                            <div class="tree-row coll" class:on=move || a.collection.get() == id
+                                on:click=move |_| { a.toggle_side(&id2); a.collection.set(id2.clone()); }
                                 on:dragover=move |e| e.prevent_default()
                                 on:drop=move |e| drop_on(e, id3.clone(), String::new(), None)>
                                 <span class="caret">{move || if open.get() { "▾" } else { "▸" }}</span>
                                 <span class="name">{c.name.clone()}</span>
                                 <span class="acts">
                                     <button class="btn ghost sm" title="Nueva petición" on:click={let id = id4.clone(); move |e| { e.stop_propagation(); new_request(id.clone(), String::new()) }}>"＋"</button>
+                                    <button class="btn ghost sm" title="Nuevo flujo en esta colección" on:click={let id = id4.clone(); move |e| { e.stop_propagation(); new_flow(id.clone()) }}>"⟿"</button>
                                     <button class="btn ghost sm" title="Nueva carpeta" on:click={let id = id4.clone(); move |e| { e.stop_propagation(); new_folder(id.clone(), String::new()) }}>"▣"</button>
                                     <button class="btn ghost sm" title="Pegar cURL aquí" on:click={let id = id4.clone(); move |e| { e.stop_propagation(); a.collection.set(id.clone()); a.modal.set(Some(Modal::Curl { text: String::new(), folder: Some(String::new()) })) }}>"⌘V"</button>
                                     <button class="btn ghost sm danger" title="Eliminar (va a la papelera)" on:click={let id = id4.clone(); let name = c.name.clone(); move |e| { e.stop_propagation();
@@ -53,7 +77,8 @@ pub fn Sidebar() -> impl IntoView {
                                 </span>
                             </div>
                             <div style:display={move || if open.get() { "block" } else { "none" }}>
-                                {tree(c.id.clone(), items.clone(), 1, filter)}
+                                <div style:display=move || if a.side_kind.get() == "flujos" { "none" } else { "block" }>{tree(c.id.clone(), items.clone(), 1, filter)}</div>
+                                {flow_rows(c.id.clone(), flows, filter)}
                             </div>
                         </div>
                     }
@@ -64,6 +89,64 @@ pub fn Sidebar() -> impl IntoView {
             </div>
         </aside>
     }
+}
+
+/// Flujos de la colección `col`: clic lo abre en el modo Flujos.
+fn flow_rows(col: String, flows: RwSignal<Vec<Value>>, filter: RwSignal<String>) -> impl IntoView {
+    let a = app();
+    let key = format!("{col}::flujos");
+    move || {
+        let f = filter.get().to_lowercase();
+        let rows: Vec<_> = flows.with(|l| {
+            l.iter()
+                .filter(|x| x["collection"].as_str() == Some(col.as_str()))
+                .map(|x| (x["id"].as_str().unwrap_or("").to_string(), x["name"].as_str().unwrap_or("").to_string()))
+                .filter(|(_, n)| f.is_empty() || n.to_lowercase().contains(&f))
+                .map(|(id, name)| {
+                    let (id2, id3) = (id.clone(), id.clone());
+                    let id4 = id.clone();
+                    let open_dirty = move || a.flow_dirty.get() && a.flow_open.get().as_deref() == Some(id4.as_str());
+                    view! {
+                        <div class="tree-row flow-row" style="padding-left:36px" title="Abrir el flujo"
+                            class:on=move || a.mode.get() == crate::state::Mode::Flows && a.flow_open.get().as_deref() == Some(id2.as_str())
+                            on:click=move |_| { a.flow_open.set(Some(id3.clone())); a.mode.set(crate::state::Mode::Flows) }>
+                            <span class="m flow-ic">"⟿"</span>
+                            <span class="name">{name}</span>
+                            {move || open_dirty().then(|| view! {
+                                <span class="dirty-mark" title="Cambios sin guardar · clic para guardar" on:click=move |e| { e.stop_propagation(); a.save_all.update(|n| *n += 1) }>"●"</span>
+                            })}
+                        </div>
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+        if rows.is_empty() || a.side_kind.get() == "peticiones" {
+            return None;
+        }
+        let (k1, k2) = (key.clone(), key.clone());
+        let open = Signal::derive(move || !a.side_closed.with(|s| s.contains(&k1)));
+        let n = rows.len();
+        Some(view! {
+            <div class="tree-row" style="padding-left:22px" on:click=move |_| a.toggle_side(&k2)>
+                <span class="caret">{move || if open.get() { "▾" } else { "▸" }}</span>
+                <span class="name">"Flujos"</span><span class="muted">{n}</span>
+            </div>
+            <div style:display=move || if open.get() { "block" } else { "none" }>{rows}</div>
+        })
+    }
+}
+
+fn new_flow(col: String) {
+    let a = app();
+    spawn_local(async move {
+        match api::post::<Value>("/api/flows", &json!({"name": "Nuevo flujo", "collection": col, "nodes": [], "edges": []})).await {
+            Ok(v) => {
+                a.flow_open.set(v["id"].as_str().map(String::from));
+                a.mode.set(crate::state::Mode::Flows);
+            }
+            Err(e) => a.err(e),
+        }
+    });
 }
 
 fn matches(it: &TreeItem, f: &str) -> bool {
@@ -123,16 +206,18 @@ fn tree(col: String, items: Vec<TreeItem>, depth: usize, filter: RwSignal<String
             let visible = move || matches(&it1, &filter.get().to_lowercase());
             let drop_cls = RwSignal::new("");
             if it.folder {
-                let open = RwSignal::new(true);
+                let key = format!("{col}/{}", it.path);
+                let ko = key.clone();
+                let open = Signal::derive(move || !a.side_closed.with(|s| s.contains(&ko)));
                 let (c2, p2, c3, p3, c4, p4) = (col.clone(), it.path.clone(), col.clone(), it.path.clone(), col.clone(), it.path.clone());
                 view! {
                     <div style:display={move || if visible() { "block" } else { "none" }}>
-                        <div class=move || format!("tree-row {}", drop_cls.get()) style=pad on:click=move |_| open.update(|o| *o = !*o)
+                        <div class=move || format!("tree-row {}", drop_cls.get()) style=pad on:click=move |_| a.toggle_side(&key)
                             on:dragover=move |e| { e.prevent_default(); drop_cls.set("drop-in") }
                             on:dragleave=move |_| drop_cls.set("")
                             on:drop=move |e| { drop_cls.set(""); drop_on(e, c2.clone(), p2.clone(), None) }>
                             <span class="caret">{move || if open.get() { "▾" } else { "▸" }}</span>
-                            <span class="name">"📁 "{it.name.clone()}</span>
+                            <span class="name">{it.name.clone()}</span>
                             <span class="acts">
                                 <button class="btn ghost sm" title="Nueva petición" on:click=move |e| { e.stop_propagation(); new_request(c3.clone(), p3.clone()) }>"＋"</button>
                                 <button class="btn ghost sm" title="Pegar cURL aquí" on:click=move |e| { e.stop_propagation(); a.collection.set(c4.clone()); a.modal.set(Some(Modal::Curl { text: String::new(), folder: Some(p4.clone()) })) }>"⌘V"</button>
@@ -146,7 +231,9 @@ fn tree(col: String, items: Vec<TreeItem>, depth: usize, filter: RwSignal<String
                 let (c2, p2, c3, p3, c4, p4) = (col.clone(), it.path.clone(), col.clone(), it.path.clone(), col.clone(), it.path.clone());
                 let (p5, c5) = (it.path.clone(), col.clone());
                 let name = it.name.clone();
+                let (p6, c6) = (it.path.clone(), col.clone());
                 let is_open = move || a.active().is_some_and(|p| p.path.get().as_deref() == Some(p5.as_str()) && p.collection.get() == c5);
+                let mine = move || a.dirty_panels().into_iter().filter(|p| p.path.get().as_deref() == Some(p6.as_str()) && p.collection.get() == c6).collect::<Vec<_>>();
                 view! {
                     <div class=move || format!("tree-row {}", drop_cls.get()) class:on=is_open style=pad draggable="true"
                         style:display={move || if visible() { "flex" } else { "none" }}
@@ -174,6 +261,9 @@ fn tree(col: String, items: Vec<TreeItem>, depth: usize, filter: RwSignal<String
                         <span class=format!("m m-{}", it.method)>{it.method.clone()}</span>
                         {(!it.id.is_empty()).then(|| view! { <span class="req-id">{it.id.clone()}</span> })}
                         <span class="name">{name.clone()}</span>
+                        {move || { let d = mine(); (!d.is_empty()).then(|| view! {
+                            <span class="dirty-mark" title="Cambios sin guardar · clic para guardar" on:click=move |e| { e.stop_propagation(); d.iter().for_each(|p| a.save_panel(p)) }>"●"</span>
+                        }) }}
                         <span class="acts">
                             <button class="btn ghost sm danger" title="Eliminar" on:click={let (c, p) = (col.clone(), it.path.clone()); move |e| { e.stop_propagation();
                                 a.modal.set(Some(Modal::Confirm { text: format!("¿Eliminar «{name}»?"), action: ConfirmAction::DeleteRequest(c.clone(), p.clone()) })) }}>"×"</button>
@@ -342,14 +432,20 @@ pub fn Panels() -> impl IntoView {
     view! {
         <div class="work">
             <Screens />
-            <div class="panels">
+            <div class="panels"
+                on:dragover=|e: web_sys::DragEvent| { if e.data_transfer().is_some_and(|d| d.types().includes(&DND_REQ.into(), 0)) { e.prevent_default() } }
+                on:drop=move |e: web_sys::DragEvent| {
+                    let Some(v) = e.data_transfer().and_then(|d| d.get_data(DND_REQ).ok()).and_then(|s| serde_json::from_str::<Value>(&s).ok()) else { return };
+                    e.prevent_default();
+                    a.open_request(v["collection"].as_str().unwrap_or_default().into(), v["path"].as_str().unwrap_or_default().into());
+                }>
                 {move || screen().map(|s| {
                     let panels = s.panels;
                     view! {
                         <For each=move || panels.get() key=|p| p.id.clone() children=move |p: Panel| view! { <PanelView p=p panels=panels /> } />
                         {move || panels.with(|p| p.is_empty()).then(|| view! {
                             <div class="empty grow">
-                                <p>"Abre una petición de la barra lateral, crea una nueva o pega un cURL (Ctrl+V fuera de un campo)."</p>
+                                <p>"Haz clic o arrastra aquí una petición de la barra lateral, crea una nueva o pega un cURL (Ctrl+V fuera de un campo)."</p>
                                 <div class="row" style="justify-content:center">
                                     <button class="btn" on:click=move |_| { let col = a.collection.get_untracked(); a.add_panel(Panel::new(&col, None, Request { name: "Sin título".into(), ..Request::new("get", "{{baseUrl}}/") })) }>"Panel vacío"</button>
                                     <button class="btn" on:click=move |_| a.modal.set(Some(Modal::Curl { text: String::new(), folder: None }))>"Pegar cURL"</button>

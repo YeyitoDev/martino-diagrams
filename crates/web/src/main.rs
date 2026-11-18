@@ -1,6 +1,8 @@
 mod api;
 mod cases;
+mod flow_panels;
 mod flow_steps;
+mod flow_story;
 mod flow_inspector;
 mod flows;
 mod modals;
@@ -31,7 +33,11 @@ fn Shell() -> impl IntoView {
     let a = App::new();
     // arranque: workspace → colecciones → eventos
     leptos::task::spawn_local(async move {
-        a.restore_workspace().await;
+        // Si el servidor aún está arrancando se reintenta: el guardado automático no corre hasta restaurar.
+        while !a.restore_workspace().await {
+            let wait = js_sys::Promise::new(&mut |r, _| { let _ = leptos::prelude::window().set_timeout_with_callback_and_timeout_and_arguments_0(&r, 1000); });
+            let _ = wasm_bindgen_futures::JsFuture::from(wait).await;
+        }
         a.reload_collections();
         a.listen_events();
         a.loaded.set(true);
@@ -90,24 +96,34 @@ fn Shell() -> impl IntoView {
         }
     });
     let envs = move || a.coll().map(|c| c.environments).unwrap_or_default();
+    // Sin selector de colección arriba (se elige en la barra lateral): si el entorno activo no existe
+    // en la colección nueva, se pasa a su primer entorno.
+    Effect::new(move |_| {
+        let list = envs();
+        if !list.is_empty() && !list.contains(&a.env.get_untracked()) {
+            a.env.set(list[0].clone());
+        }
+    });
     view! {
         <div id="app">
             <header class="top">
-                <div class="brand"><img src="/icons/icon.svg" alt="" />"Martino"</div>
-                <div class="seg" role="tablist">
+                <div class="brand"><ui::Cat />"Martino"</div>
+                <div class="seg modeseg" role="tablist">
+                    // La «gota»: un fondo que se estira y cae sobre el modo elegido.
+                    <span class=move || if a.mode.get() == Mode::Flows { "blob r" } else { "blob l" }></span>
                     <button class:on=move || a.mode.get() == Mode::Requests on:click=move |_| a.mode.set(Mode::Requests) title="Ctrl+1">"Peticiones"</button>
                     <button class:on=move || a.mode.get() == Mode::Flows on:click=move |_| a.mode.set(Mode::Flows) title="Ctrl+2">"Flujos"</button>
                 </div>
-                <select class="in" title="Colección activa" prop:value=move || a.collection.get() on:change=move |e| { a.collection.set(event_target_value(&e)); a.env.set(envs().first().cloned().unwrap_or_default()) }>
-                    {move || a.collections.get().into_iter().map(|c| view! { <option value=c.id.clone()>{c.name}</option> }).collect_view()}
-                </select>
-                <div class="envsel">
+                <div class="envsel" title="Entorno activo: de aquí salen los valores de {{variables}}">
+                    <span class="envsel-l">"Entorno"</span>
                     <span class="dot" class:on=move || !a.env.get().is_empty()></span>
-                    <select class="in" title="Entorno activo" prop:value=move || a.env.get() on:change=move |e| a.env.set(event_target_value(&e))>
+                    <select class="in" prop:value=move || a.env.get() on:change=move |e| a.env.set(event_target_value(&e))>
                         <option value="">"Sin entorno"</option>
                         {move || envs().into_iter().map(|e| { let on = e.clone(); view! { <option value=e.clone() selected=move || a.env.get() == on>{e.clone()}</option> } }).collect_view()}
                     </select>
-                    <button class="btn ghost" title="Variables y entornos (Ctrl+E)" on:click=move |_| a.modal.set(Some(Modal::Env(None)))>"{ } Variables"</button>
+                    <button class="btn varbtn" title="Ver y editar las variables de cada entorno (Ctrl+E)" on:click=move |_| a.modal.set(Some(Modal::Env(None)))>
+                        "Variables"<span class="badge" title="Variables disponibles en este entorno">{move || a.vars.with(|v| v.len())}</span>
+                    </button>
                 </div>
                 <span class="grow"></span>
                 <button class="btn ghost" title="Carpeta de trabajo: cambia dónde se guardan tus datos" on:click=move |_| a.modal.set(Some(Modal::Folder))>"📁 "{move || folder.get()}</button>
@@ -128,12 +144,12 @@ fn Shell() -> impl IntoView {
             </div>
             <footer class="status">
                 <span>{move || format!("{} variables en «{}»", a.vars.with(|v| v.len()), a.env.get())}</span>
-                <ui::VarLegend />
                 <span class="grow"></span>
                 <span>"Ctrl+Enter enviar · Ctrl+Shift+Enter pantalla · Ctrl+E variables"</span>
             </footer>
             <modals::Modals />
             <ui::VarTip />
+            <ui::HoverTip />
             <ui::Autocomplete />
             <div class="toasts">{move || a.toasts.get().into_iter().map(|(_, k, m)| view! { <div class=format!("toast {k}")>{m}</div> }).collect_view()}</div>
         </div>

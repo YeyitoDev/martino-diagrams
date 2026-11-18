@@ -69,6 +69,34 @@ impl Table {
     }
 }
 
+/// Resuelve una referencia a tabla dentro de una plantilla, sin paso de Equivalencia:
+/// - `tabla.bancos[entrada.banco].nombre` → busca en la primera columna;
+/// - `tabla.bancos[nombre=BCP].codigo` o `tabla.bancos.buscar("nombre", "BCP").codigo` → busca en otra columna.
+/// El valor buscado puede ser una ruta del flujo (`entrada.banco`, la resuelve `resolve`) o un literal.
+pub fn table_ref(name: &str, table: &dyn Fn(&str) -> Option<Table>, resolve: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let rest = name.trim().strip_prefix("tabla.")?;
+    let (tname, col, expr, out) = if let Some(i) = rest.find(".buscar(") {
+        let close = rest[i..].find(')')? + i;
+        let args: Vec<&str> = rest[i + 8..close].splitn(2, ',').collect();
+        let [c, e] = args.as_slice() else { return None };
+        (&rest[..i], unquote(c).to_string(), e.trim().to_string(), rest[close + 1..].strip_prefix('.')?)
+    } else {
+        let open = rest.find('[')?;
+        let close = rest[open..].find(']')? + open;
+        let inner = &rest[open + 1..close];
+        let (c, e) = inner.split_once('=').map(|(c, e)| (c.trim().to_string(), e.trim().to_string())).unwrap_or((String::new(), inner.trim().to_string()));
+        (&rest[..open], c, e, rest[close + 1..].strip_prefix('.')?)
+    };
+    let value = resolve(&expr).unwrap_or_else(|| unquote(&expr).to_string());
+    let t = table(tname)?;
+    let row = t.find(&col, &value)?;
+    row.get(out).and_then(|v| v.as_str()).map(String::from)
+}
+
+fn unquote(s: &str) -> &str {
+    s.trim().trim_matches(|c| c == '"' || c == '\'')
+}
+
 fn norm(s: &str) -> String {
     s.trim().to_lowercase()
 }
@@ -88,5 +116,20 @@ mod tests {
         assert_eq!(t.lookup(&s("keep", ""), "999", "bancos").unwrap(), json!({"codigo": "999", "nombre": "999", "swift": "999"}));
         assert_eq!(t.lookup(&s("default", ""), "999", "bancos").unwrap()["nombre"], json!("?"));
         assert_eq!(parse_table(&t.to_csv()), t);
+    }
+
+    #[test]
+    fn referencia_a_tabla_en_plantillas() {
+        let t = parse_table("codigo,nombre,swift\n002,BCP,BCPLPEPL\n011,BBVA,BCONPEPL\n");
+        let table = |n: &str| (n == "bancos").then(|| t.clone());
+        let resolve = |e: &str| (e == "entrada.banco").then(|| "011".to_string());
+        let r = |s: &str| table_ref(s, &table, &resolve);
+        assert_eq!(r("tabla.bancos[entrada.banco].nombre").as_deref(), Some("BBVA"), "ruta del flujo");
+        assert_eq!(r("tabla.bancos[002].swift").as_deref(), Some("BCPLPEPL"), "literal");
+        assert_eq!(r("tabla.bancos[nombre=bcp].codigo").as_deref(), Some("002"), "al revés, sin mirar mayúsculas");
+        assert_eq!(r("tabla.bancos.buscar(\"nombre\", \"BBVA\").codigo").as_deref(), Some("011"), "forma buscar(...)");
+        assert_eq!(r("tabla.bancos[999].nombre"), None, "no está: queda sin resolver");
+        assert_eq!(r("tabla.otra[002].nombre"), None);
+        assert_eq!(r("entrada.banco"), None, "sólo atiende tabla.*");
     }
 }

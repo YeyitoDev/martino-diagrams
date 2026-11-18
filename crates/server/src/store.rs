@@ -1,6 +1,7 @@
 //! Colecciones en disco con la estructura de Bruno. Los secretos van aparte en
 //! `.workbench/secrets.json`; borrar una colección la manda a la papelera.
 use martino_core::bru;
+use martino_core::yaml_req;
 use martino_core::model::{Environment, Pair, Request};
 use martino_core::postman::{Converted, Item};
 use serde::Serialize;
@@ -72,6 +73,15 @@ fn rel(base: &Path, p: &Path) -> String {
     p.strip_prefix(base).unwrap_or(p).to_string_lossy().replace('\\', "/")
 }
 
+/// Metadatos de carpeta y colección: viven junto a las peticiones pero no lo son.
+/// shortcut: folder/collection y los entornos se siguen leyendo y escribiendo como `.bru`;
+/// pasar a `folder.yml` / `opencollection.yml` cuando migremos colecciones enteras a YAML.
+const META: [&str; 4] = ["folder.bru", "collection.bru", "folder.yml", "opencollection.yml"];
+
+fn is_request_name(fname: &str) -> bool {
+    yaml_req::is_request_file(fname) && !META.contains(&fname)
+}
+
 fn unique(dir: &Path, stem: &str, ext: &str) -> PathBuf {
     let first = dir.join(format!("{stem}{ext}"));
     if !first.exists() {
@@ -96,8 +106,8 @@ impl Store {
     }
 
     fn req_path(&self, col: &str, path: &str) -> Res<PathBuf> {
-        if !path.ends_with(".bru") {
-            return Err("La petición debe ser un .bru".into());
+        if !yaml_req::is_request_file(path) {
+            return Err("La petición debe ser un .yml o .bru".into());
         }
         safe_join(&self.col_dir(col)?, path)
     }
@@ -144,10 +154,10 @@ impl Store {
                     seq: meta.seq.unwrap_or(f64::MAX),
                     items: self.tree(base, &p),
                 });
-            } else if fname.ends_with(".bru") && !matches!(fname.as_str(), "folder.bru" | "collection.bru") {
-                let r = std::fs::read_to_string(&p).map(|s| bru::parse_request(&s)).unwrap_or_default();
+            } else if is_request_name(&fname) {
+                let r = std::fs::read_to_string(&p).ok().and_then(|s| yaml_req::parse_file(&fname, &s).ok()).unwrap_or_default();
                 items.push(TreeItem {
-                    name: if r.name.is_empty() { fname.trim_end_matches(".bru").into() } else { r.name },
+                    name: if r.name.is_empty() { yaml_req::strip_ext(&fname).unwrap_or(&fname).into() } else { r.name },
                     path: rel(base, &p),
                     folder: false,
                     method: r.method,
@@ -211,7 +221,8 @@ impl Store {
 
     pub fn read_request(&self, col: &str, path: &str) -> Res<Request> {
         let p = self.req_path(col, path)?;
-        std::fs::read_to_string(&p).map(|s| bru::parse_request(&s)).map_err(|_| format!("No existe {path}"))
+        let s = std::fs::read_to_string(&p).map_err(|_| format!("No existe {path}"))?;
+        yaml_req::parse_file(path, &s).map_err(|e| format!("{path}: {e}"))
     }
 
     pub fn write_request(&self, col: &str, path: &str, r: &Request) -> Res<()> {
@@ -219,7 +230,7 @@ impl Store {
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(io)?;
         }
-        std::fs::write(p, bru::serialize_request(r)).map_err(io)
+        std::fs::write(p, yaml_req::serialize_file(path, r)).map_err(io)
     }
 
     fn folder_requests(&self, col: &str, folder: &str) -> Res<Vec<(String, Request)>> {
@@ -229,11 +240,12 @@ impl Store {
             .flatten()
             .filter(|e| e.path().is_file())
             .map(|e| e.file_name().to_string_lossy().to_string())
-            .filter(|f| f.ends_with(".bru") && f != "folder.bru" && f != "collection.bru")
-            .map(|f| {
+            .filter(|f| is_request_name(f))
+            // Un YAML roto se salta: renumerar `seq` lo sobrescribiría con una petición vacía.
+            .filter_map(|f| {
                 let path = if folder.is_empty() { f.clone() } else { format!("{folder}/{f}") };
-                let r = self.read_request(col, &path).unwrap_or_default();
-                (path, r)
+                let r = self.read_request(col, &path).ok()?;
+                Some((path, r))
             })
             .collect();
         out.sort_by(|a, b| a.1.seq.unwrap_or(f64::MAX).total_cmp(&b.1.seq.unwrap_or(f64::MAX)).then(a.0.cmp(&b.0)));
@@ -251,7 +263,7 @@ impl Store {
             r.name = "Nueva petición".into();
         }
         r.id = self.next_id(col, folder, &r.id)?;
-        let p = unique(&d, &slug(&r.name), ".bru");
+        let p = unique(&d, &slug(&r.name), yaml_req::EXT);
         let path = rel(&self.col_dir(col)?, &p);
         self.write_request(col, &path, &r)?;
         Ok(path)
@@ -295,8 +307,8 @@ impl Store {
             from.to_string()
         } else {
             let d = safe_join(&self.col_dir(col)?, to_folder)?;
-            let stem = fname.trim_end_matches(".bru");
-            let dest = unique(&d, stem, ".bru");
+            let stem = yaml_req::strip_ext(&fname).unwrap_or(&fname);
+            let dest = unique(&d, stem, &fname[stem.len()..]);
             std::fs::rename(&src, &dest).map_err(io)?;
             rel(&self.col_dir(col)?, &dest)
         };
@@ -497,7 +509,7 @@ mod tests {
         let a = s.create_request(&col, &f, &Request { name: "A".into(), ..Request::new("get", "/a") }).unwrap();
         let b = s.create_request(&col, &f, &Request { name: "B".into(), ..Request::new("get", "/b") }).unwrap();
         let c = s.create_request(&col, "", &Request { name: "C".into(), ..Request::new("post", "/c") }).unwrap();
-        assert_eq!((a.as_str(), s.read_request(&col, &b).unwrap().seq), ("Usuarios/A.bru", Some(2.0)));
+        assert_eq!((a.as_str(), s.read_request(&col, &b).unwrap().seq), ("Usuarios/A.yml", Some(2.0)));
         assert_eq!(s.read_request(&col, &b).unwrap().id, "USU-002");
         let agent = s.create_request(&col, &f, &Request { name: "D".into(), id: "PAG-014".into(), ..Request::new("get", "/d") }).unwrap();
         assert_eq!(s.read_request(&col, &agent).unwrap().id, "PAG-014", "respeta el ID del agente");
@@ -509,7 +521,7 @@ mod tests {
         assert_eq!(s.list()[0].items.iter().filter(|i| i.name == "tablas").count(), 0, "las tablas no son carpetas de peticiones");
         // C entra a la carpeta antes de B
         let moved = s.move_request(&col, &c, &f, Some(&b)).unwrap();
-        assert_eq!(moved, "Usuarios/C.bru");
+        assert_eq!(moved, "Usuarios/C.yml");
         let order: Vec<_> = s.folder_requests(&col, &f).unwrap().into_iter().map(|x| (x.0, x.1.seq)).collect();
         assert_eq!(order, vec![(a.clone(), Some(1.0)), (moved.clone(), Some(2.0)), (b.clone(), Some(3.0))]);
         // reordenar dentro de la carpeta: A al final
@@ -518,6 +530,15 @@ mod tests {
         let tree = &s.list()[0];
         assert_eq!(tree.items[0].items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["C", "B", "A"]);
         assert!(s.read_request(&col, "../x.bru").is_err());
+        assert!(s.read_request(&col, "bruno.json").is_err(), "sólo archivos de petición");
+        // un .bru existente se lee, se mueve y se guarda como .bru
+        let dir = s.col_dir(&col).unwrap();
+        std::fs::write(dir.join("Vieja.bru"), bru::serialize_request(&Request { name: "Vieja".into(), ..Request::new("get", "/v") })).unwrap();
+        let old = s.move_request(&col, "Vieja.bru", &f, None).unwrap();
+        assert_eq!(old, "Usuarios/Vieja.bru");
+        assert!(std::fs::read_to_string(dir.join(&old)).unwrap().contains("meta {"), "sigue en formato .bru");
+        assert_eq!(s.list()[0].items[0].items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["C", "B", "A", "Vieja"]);
+        s.delete_request(&col, &old).unwrap();
         assert!(safe_join(Path::new("/a"), "/etc/passwd").is_err());
 
         let env = Environment { name: "dev".into(), vars: vec![Pair::new("url", "u")], secrets: vec![Pair::new("token", "T")], ..Default::default() };

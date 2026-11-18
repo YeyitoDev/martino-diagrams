@@ -63,7 +63,8 @@ pub fn NodeResp(id: String) -> impl IntoView {
             return None;
         }
         let used = ed.used.with(|u| u.get(&n.key).cloned().unwrap_or_default());
-        let mut rows: Vec<(String, String, &'static str, String)> = used
+        // (campo visible, valor, clase, por qué se muestra, ruta completa que se copia)
+        let mut rows: Vec<(String, String, &'static str, String, String)> = used
             .iter()
             .map(|u| {
                 (
@@ -71,11 +72,12 @@ pub fn NodeResp(id: String) -> impl IntoView {
                     read(&n, &out, &u.path).map(|v| brief(&v)).unwrap_or_else(|| "—".into()),
                     if u.cond { "cond" } else { "ref" },
                     format!("Lo usa «{}»", u.by),
+                    u.path.clone(),
                 )
             })
             .collect();
         for p in n.pins.iter().filter(|p| !used.iter().any(|u| &u.path == *p)) {
-            rows.push((short_path(p).to_string(), read(&n, &out, p).map(|v| brief(&v)).unwrap_or_else(|| "—".into()), "pin", "Fijado por ti".into()));
+            rows.push((short_path(p).to_string(), read(&n, &out, p).map(|v| brief(&v)).unwrap_or_else(|| "—".into()), "pin", "Fijado por ti".into(), p.clone()));
         }
         let b = base(&n, &out);
         let keys: Vec<String> = b.as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
@@ -86,20 +88,28 @@ pub fn NodeResp(id: String) -> impl IntoView {
         if mode == "todo" || preview {
             if b.is_object() {
                 let take = if preview { 3 } else { rest.len() };
-                rows.extend(rest.iter().take(take).map(|k| (k.clone(), brief(&b[k.as_str()]), "", String::new())));
+                let pre = if n.kind == "request" { "response." } else { "" };
+                rows.extend(rest.iter().take(take).map(|k| (k.clone(), brief(&b[k.as_str()]), "", String::new(), format!("{pre}{k}"))));
             } else if rows.is_empty() && !b.is_null() {
-                rows.push(("(todo)".into(), brief(&b), "", String::new()));
+                rows.push(("(todo)".into(), brief(&b), "", String::new(), String::new()));
             }
         }
         let hidden = if mode == "todo" { 0 } else { rest.len().saturating_sub(if preview { 3 } else { 0 }) };
         if rows.is_empty() && hidden == 0 {
             return None;
         }
-        let extra = rows.len().saturating_sub(6);
+        // Redimensionado: se ven todas las filas (con barra si no entran); si no, las 6 primeras.
+        let max = if n.height.is_some() { usize::MAX } else { 6 };
+        let extra = rows.len().saturating_sub(max);
         Some(view! {
             <div class="fn-resp" title="Respuesta recortada: lo que usan otros nodos y lo que fijaste. Cambia con «Respuesta en nodos» arriba.">
-                {rows.into_iter().take(6).map(|(k, v, cls, why)| view! {
-                    <div class=format!("fr-row {cls}") title=why><span class="fr-k">{k}</span><span class="fr-v">{v}</span></div>
+                {rows.into_iter().take(max).map(|(k, v, cls, why, path)| {
+                    let full = if path.is_empty() { n.key.clone() } else { format!("{}.{path}", n.key) };
+                    let tip = format!("{why}{}Clic copia {{{{{full}}}}} para pegarlo en otro nodo", if why.is_empty() { "" } else { " · " });
+                    view! {
+                        <div class=format!("fr-row {cls}") title=tip on:pointerdown=|e| e.stop_propagation()
+                            on:click=move |_| crate::ui::copy(&format!("{{{{{full}}}}}"))><span class="fr-k">{k}</span><span class="fr-v">{v}</span></div>
+                    }
                 }).collect_view()}
                 {(extra + hidden > 0).then(|| view! { <div class="fr-more">{format!("+ {} campos más", extra + hidden)}</div> })}
             </div>
@@ -122,7 +132,7 @@ pub fn PinList(id: String) -> impl IntoView {
         let prefix = if n.kind == "request" { "response." } else { "" };
         Some(view! {
             <h4>"Mostrar en el nodo"</h4>
-            <p class="muted">"Lo que usa otro nodo se muestra solo. Marca lo que quieras ver además."</p>
+            <crate::ui::Info><p>"Lo que usa otro nodo se muestra solo. Marca lo que quieras ver además."</p></crate::ui::Info>
             <div class="pins">
                 {keys.into_iter().map(|k| {
                     let path = format!("{prefix}{k}");
@@ -267,7 +277,7 @@ pub fn CryptoEditor(id: String) -> impl IntoView {
             <label class="f">"Llave"
                 <VarField value=Signal::derive(move || spec.get().key) placeholder="{{publica_banco}}" on_input=Callback::new(move |v: String| set_spec(ed, &i, move |s| s.key = v)) />
             </label>
-            <p class="muted">{fmt().key}". Guárdala como secreto del entorno (no va al .bru ni a git)."</p>
+            <p class="muted">{fmt().key}". Guárdala como secreto del entorno (no va al archivo de la petición ni a git)."</p>
             <button class="btn sm" on:click=g>{move || if has_test_key() { "Usar la llave de prueba del flujo" } else { "Generar llave de prueba" }}</button>
         }})}
         <label class="f">{move || if spec.get().op == "encrypt" || spec.get().op == "sign" { "Qué procesa" } else { "Qué descifra o verifica" }}
@@ -325,46 +335,146 @@ pub fn LookupEditor(id: String) -> impl IntoView {
     let t = Memo::new(move |_| table(ed, &spec.get().table));
     let probe = RwSignal::new(String::new());
     let (i_t, i_v, i_c, i_m, i_d) = (id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
-    let key = move || ed.flow.with(|f| f.node(&id).map(|n| n.key.clone()).unwrap_or_default());
+    let key = Memo::new(move |_| ed.flow.with(|f| f.node(&id).map(|n| n.key.clone()).unwrap_or_default()));
+    // Valor que se busca: lo que escribes en «Probar» o, si está vacío, el de la plantilla con los datos actuales.
+    let current = move || {
+        let p = probe.get();
+        if !p.trim().is_empty() {
+            return p;
+        }
+        let v = spec.get().value;
+        app().flow_ctx.with(|f| f.as_ref().map(|(flow, outs)| {
+            let vars = serde_json::Map::new();
+            martino_core::flow::RefCtx { flow, outs, vars: &vars }.render(&v, &|_| None)
+        })).unwrap_or(v)
+    };
+    let in_col = move || t.with(|t| t.as_ref().map(|t| t.cols.iter().position(|c| *c == spec.with(|s| s.column.clone())).unwrap_or(0)).unwrap_or(0));
     view! {
-        <label class="f">"Tabla"
-            <div class="row">
+        <div class="eqv">
+            <div class="eqv-s">
+                <span>"Busca"</span>
+                <span class="grow"><VarField value=Signal::derive(move || spec.get().value) placeholder="{{entrada.banco}}" on_input=Callback::new(move |v: String| set_lookup(ed, &i_v, move |s| s.value = v)) /></span>
+            </div>
+            <div class="eqv-s">
+                <span>"en la tabla"</span>
                 <select class="in grow" prop:value=move || spec.get().table on:change=move |e| { let v = event_target_value(&e); set_lookup(ed, &i_t, move |s| { s.table = v; s.column.clear() }) }>
                     <option value="">"— elige una tabla —"</option>
-                    {move || ed.table_list.get().into_iter().map(|(n, _)| view! { <option value=n.clone()>{n.clone()}</option> }).collect_view()}
+                    {move || ed.table_list.get().into_iter().map(|(n, tb)| { let on = spec.with(|s| s.table == n); view! { <option value=n.clone() selected=on>{format!("{n} · {} filas", tb.rows.len())}</option> } }).collect_view()}
                 </select>
-                <button class="btn sm" title="Crear o editar tablas" on:click=move |_| ed.pane.set(crate::flows::Pane::Tables)>"Editar tablas"</button>
+                <button class="btn sm" title="Crear, editar o importar tablas (CSV)" on:click=move |_| ed.pane.set(crate::flows::Pane::Tables)>"Editar tablas"</button>
             </div>
-        </label>
-        <label class="f">"Qué valor buscar"
-            <VarField value=Signal::derive(move || spec.get().value) placeholder="{{cuenta.response.banco}}" on_input=Callback::new(move |v: String| set_lookup(ed, &i_v, move |s| s.value = v)) />
-        </label>
-        <label class="f">"En la columna"
-            <select class="in" prop:value=move || spec.get().column on:change=move |e| { let v = event_target_value(&e); set_lookup(ed, &i_c, move |s| s.column = v) }>
-                {move || t.get().map(|t| t.cols).unwrap_or_default().into_iter().enumerate().map(|(i, c)| { let v = if i == 0 { String::new() } else { c.clone() }; view! { <option value=v>{c}</option> } }).collect_view()}
-            </select>
-        </label>
-        <label class="f">"Si no está"
-            <select class="in" prop:value=move || spec.get().on_miss on:change=move |e| { let v = event_target_value(&e); set_lookup(ed, &i_m, move |s| s.on_miss = v) }>
-                <option value="">"Detener con error"</option>
-                <option value="keep">"Dejar el valor igual"</option>
-                <option value="default">"Usar un valor fijo"</option>
-            </select>
-        </label>
-        {move || (spec.get().on_miss == "default").then(|| { let i = i_d.clone(); view! {
-            <input class="in" data-noac placeholder="valor fijo" prop:value=move || spec.get().default on:input=move |e| { let v = event_target_value(&e); set_lookup(ed, &i, move |s| s.default = v) } />
-        }})}
-        {move || t.get().map(|t| view! {
-            <p class="muted">"Sale como "{t.cols.iter().map(|c| format!("{{{{{}.{c}}}}}", key())).collect::<Vec<_>>().join(" · ")}</p>
-        })}
-        <h4>"Probar"</h4>
-        <input class="in" data-noac placeholder="escribe un valor, p. ej. 003" prop:value=move || probe.get() on:input=move |e| probe.set(event_target_value(&e)) />
-        {move || {
-            let (Some(t), q) = (t.get(), probe.get()) else { return None };
-            (!q.trim().is_empty()).then(|| match t.lookup(&spec.get(), &q, &spec.get().table) {
-                Ok(v) => view! { <pre class="code ok-text">{serde_json::to_string_pretty(&v).unwrap_or_default()}</pre> }.into_any(),
-                Err(e) => view! { <pre class="code err-text">{e}</pre> }.into_any(),
-            })
-        }}
+            {move || {
+                let tb = t.get()?;
+                let ic = in_col();
+                let q = current();
+                let qn = q.trim().to_lowercase();
+                let hit = tb.rows.iter().position(|r| r.get(ic).is_some_and(|c| c.trim().to_lowercase() == qn));
+                let shown = 8usize;
+                let more = tb.rows.len().saturating_sub(shown);
+                let i_c = i_c.clone();
+                Some(view! {
+                    <div class="eqv-t">
+                        <table>
+                            <thead><tr>
+                                {tb.cols.iter().enumerate().map(|(i, c)| {
+                                    let (name, i_c) = (if i == 0 { String::new() } else { c.clone() }, i_c.clone());
+                                    view! {
+                                        <th class=if i == ic { "in" } else { "out" } title=if i == ic { "Se busca en esta columna".to_string() } else { format!("Clic: buscar por «{c}» en vez de esta (al revés)") }
+                                            on:click=move |_| { let n = name.clone(); set_lookup(ed, &i_c, move |s| s.column = n) }>
+                                            <small>{if i == ic { "ENTRA" } else { "SALE" }}</small>{c.clone()}
+                                        </th>
+                                    }
+                                }).collect_view()}
+                            </tr></thead>
+                            <tbody>
+                                {tb.rows.iter().enumerate().filter(|(i, _)| *i < shown || Some(*i) == hit).map(|(i, r)| view! {
+                                    <tr class:hit=Some(i) == hit>{r.iter().map(|c| view! { <td>{c.clone()}</td> }).collect_view()}</tr>
+                                }).collect_view()}
+                            </tbody>
+                        </table>
+                        {(more > 0).then(|| view! { <div class="muted eqv-more">{format!("+ {more} filas más (en Editar tablas)")}</div> })}
+                    </div>
+                })
+            }}
+            {move || t.get().map(|tb| { let ic = in_col(); view! {
+                <div class="eqv-out"><span class="muted">"Sale como"</span>
+                    {tb.cols.iter().enumerate().filter(|(i, _)| *i != ic).map(|(_, c)| { let r = format!("{{{{{}.{c}}}}}", key.get()); let r2 = r.clone(); view! {
+                        <button class="eqv-chip" title="Clic copia para usarlo en otro paso" on:click=move |_| crate::ui::copy(&r2)>{r}</button>
+                    }}).collect_view()}
+                </div>
+            }})}
+            <div class="eqv-s">
+                <span>"Si no está"</span>
+                <select class="in grow" prop:value=move || spec.get().on_miss on:change=move |e| { let v = event_target_value(&e); set_lookup(ed, &i_m, move |s| s.on_miss = v) }>
+                    <option value="">"Detener con error"</option>
+                    <option value="keep">"Dejar el valor igual"</option>
+                    <option value="default">"Usar un valor fijo"</option>
+                </select>
+                {move || (spec.get().on_miss == "default").then(|| { let i = i_d.clone(); view! {
+                    <input class="in eqv-def" data-noac placeholder="valor fijo" prop:value=move || spec.get().default on:input=move |e| { let v = event_target_value(&e); set_lookup(ed, &i, move |s| s.default = v) } />
+                }})}
+            </div>
+            <div class="eqv-probe">
+                <input class="in" data-noac placeholder="Probar otro valor (p. ej. 003)" prop:value=move || probe.get() on:input=move |e| probe.set(event_target_value(&e)) />
+                {move || {
+                    let tb = t.get()?;
+                    let q = current();
+                    if q.trim().is_empty() || q.contains("{{") { return None; }
+                    let sp = spec.get();
+                    let ic = in_col();
+                    // No está, pero la regla «si no está» deja seguir: aviso, no éxito.
+                    if tb.find(&sp.column, &q).is_none() && tb.lookup(&sp, &q, &sp.table).is_ok() {
+                        let what = if sp.on_miss == "keep" { "deja el valor igual".to_string() } else { format!("usa el valor fijo «{}»", sp.default) };
+                        return Some(view! { <div class="eqv-res miss">{format!("{q} no está en la tabla → {what}")}</div> }.into_any());
+                    }
+                    Some(match tb.lookup(&sp, &q, &sp.table) {
+                        Ok(v) => {
+                            let outs = tb.cols.iter().enumerate().filter(|(i, _)| *i != ic).map(|(_, c)| v[c.as_str()].as_str().unwrap_or("").to_string()).collect::<Vec<_>>().join(" · ");
+                            view! { <div class="eqv-res ok">{format!("{q} → {outs}")}</div> }.into_any()
+                        }
+                        Err(e) => view! { <div class="eqv-res err">{e}</div> }.into_any(),
+                    })
+                }}
+            </div>
+            <p class="muted eqv-note">"Busca sin distinguir mayúsculas ni espacios. Clic en un encabezado para buscar por otra columna."</p>
+            {move || t.get().map(|tb| {
+                let name = spec.get().table;
+                let (c0, c1) = (tb.cols.first().cloned().unwrap_or_default(), tb.cols.get(1).cloned().unwrap_or_default());
+                let a = format!("{{{{tabla.{name}[{}].{c1}}}}}", spec.get().value.trim().trim_start_matches("{{").trim_end_matches("}}"));
+                let b = format!("{{{{tabla.{name}[{c1}=…].{c0}}}}}");
+                let (a2, b2) = (a.clone(), b.clone());
+                view! {
+                    <div class="eqv-inline"><span class="muted">"Sin este paso, directo en cualquier campo:"</span>
+                        <button class="eqv-chip" title="Clic copia" on:click=move |_| crate::ui::copy(&a2)>{a}</button>
+                        <button class="eqv-chip" title="Al revés · clic copia" on:click=move |_| crate::ui::copy(&b2)>{b}</button>
+                    </div>
+                }
+            })}
+        </div>
+    }
+}
+
+/// En el lienzo, una Condición con varias reglas las muestra todas (con ✓/✗ tras ejecutar).
+#[component]
+pub fn RuleList(id: String) -> impl IntoView {
+    let ed = ed();
+    move || {
+        let n = ed.flow.with(|f| f.node(&id).cloned())?;
+        let join = if n.mode == "any" { "O" } else { "Y" };
+        Some(view! {
+            <div class="fn-rules">
+                {n.rules.iter().enumerate().map(|(i, r)| {
+                    let ev = crate::flow_inspector::rule_eval(r);
+                    let cls = match ev { Some((_, true)) => "ok", Some((_, false)) => "ko", None => "" };
+                    view! {
+                        <div class=format!("fn-rule {cls}") title=format!("{} {} {}", r.left, crate::flow_inspector::op_label(&r.op), r.right)>
+                            <span class="fn-rj">{if i == 0 { "" } else { join }}</span>
+                            <span class="fn-rt">{format!("{} {} {}", r.left, crate::flow_inspector::op_short(&r.op), r.right)}</span>
+                            <span>{match ev { Some((_, true)) => "✓", Some((_, false)) => "✗", None => "" }}</span>
+                        </div>
+                    }
+                }).collect_view()}
+            </div>
+        })
     }
 }

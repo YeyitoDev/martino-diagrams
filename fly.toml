@@ -1,0 +1,26 @@
+# Martino en Fly: público, pero sólo se entra con la llave (MARTINO_PUBLIC_KEY, secreto de Fly).
+app = "martino"
+primary_region = "gru"
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[env]
+  # Escucha fuera de la máquina; con esto la llave se pide siempre (ver crates/server/src/lib.rs).
+  MARTINO_BIND = "0.0.0.0"
+  MARTINO_PUBLIC_HOST = "martino.fly.dev"
+
+[[mounts]]
+  source = "martino_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 4400
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

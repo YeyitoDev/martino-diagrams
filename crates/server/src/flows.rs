@@ -188,7 +188,7 @@ struct Snap {
     vars: Map<String, Value>,
 }
 
-/// Petición del nodo: `ref` al .bru o inline.
+/// Petición del nodo: `ref` al archivo de la petición o inline.
 fn node_request(core: &Core, flow: &Flow, n: &Node) -> Res<Request> {
     if !n.req_ref.is_empty() {
         return core.store.read_request(&flow.collection, &n.req_ref);
@@ -201,8 +201,12 @@ async fn exec_node(core: &Core, flow: &Flow, n: &Node, snap: Snap, env: Option<&
     let mut step = Step { id: n.id.clone(), key: n.key.clone(), kind: n.kind.clone(), name: n.name.clone(), ok: true, port: Some("out".into()), ..Default::default() };
     let scope = core.scope(&flow.collection, env, None);
     let flow_vars: Vec<(String, String)> = flow.vars.iter().filter(|p| p.enabled).map(|p| (p.name.clone(), p.value.clone())).collect();
-    let env_fb = |name: &str| flow_vars.iter().find(|x| x.0 == name).map(|x| x.1.clone()).or_else(|| scope.resolve(name)).or_else(|| crate::executor::dynamic(name));
     let ctx = RefCtx { flow, outs: &snap.outs, vars: &snap.vars };
+    let plain = |name: &str| flow_vars.iter().find(|x| x.0 == name).map(|x| x.1.clone()).or_else(|| scope.resolve(name)).or_else(|| crate::executor::dynamic(name));
+    // `{{tabla.bancos[entrada.banco].nombre}}` en cualquier campo, sin paso de Equivalencia.
+    let table = |t: &str| core.store.read_table(&flow.collection, t).ok().map(|c| martino_core::lookup::parse_table(&c));
+    let inner = |e: &str| ctx.lookup(e).map(|v| value_to_text(&v)).or_else(|| plain(e));
+    let env_fb = |name: &str| plain(name).or_else(|| martino_core::lookup::table_ref(name, &table, &inner));
     let res: Result<(), String> = async {
         match n.kind.as_str() {
             "start" | "end" => {}

@@ -59,7 +59,7 @@ async fn crud_and_run_ndjson() {
     // mover y borrar
     let folder = e.json(Method::POST, "/api/folder", json!({"collection": col, "name": "Sub"})).await["path"].as_str().unwrap().to_string();
     let moved = e.json(Method::POST, "/api/request/move", json!({"collection": col, "from": path, "toFolder": folder})).await;
-    assert_eq!(moved["path"], format!("{folder}/Usuario.bru"));
+    assert_eq!(moved["path"], format!("{folder}/Usuario.yml"));
     let r = e.req(Method::DELETE, &format!("/api/collections?collection={col}")).send().await.unwrap();
     assert_eq!(r.status(), 200);
     assert_eq!(e.json(Method::GET, "/api/collections", json!(null)).await, json!([]));
@@ -74,7 +74,7 @@ async fn import_postman_and_parallel_cancel() {
     let r = e.json(Method::POST, "/api/import", json!({"data": pm})).await;
     assert_eq!(r["requests"], 1);
     let col = r["collection"].as_str().unwrap().to_string();
-    let items: Vec<_> = (0..6).map(|i| json!({"id": format!("p{i}"), "collection": col, "path": "Lento.bru"})).collect();
+    let items: Vec<_> = (0..6).map(|i| json!({"id": format!("p{i}"), "collection": col, "path": "Lento.yml"})).collect();
     let t = std::time::Instant::now();
     let lines = e.lines("/api/run", json!({"items": items, "concurrency": 6})).await;
     assert_eq!(lines.iter().filter(|l| l["type"] == "result").count(), 6);

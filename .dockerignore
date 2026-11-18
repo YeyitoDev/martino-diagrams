@@ -1,0 +1,6 @@
+# El contexto de Fly sólo necesita el binario, los datos de ejemplo y el arranque.
+*
+!target/release/martino
+!collections
+!flows
+!deploy

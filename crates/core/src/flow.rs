@@ -28,7 +28,7 @@ pub struct Flow {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Global {
-    /// Ruta del .bru (normalmente con `{{globalUrl}}`).
+    /// Ruta de la petición, .yml o .bru (normalmente con `{{globalUrl}}`).
     #[serde(rename = "ref")]
     pub req_ref: String,
 }
@@ -109,7 +109,7 @@ pub struct Node {
     /// input: campos de la entrada · data: JSON fijo
     #[serde(skip_serializing_if = "Value::is_null")]
     pub data: Value,
-    /// request: ruta del .bru en la colección
+    /// request: ruta de la petición (.yml o .bru) en la colección
     #[serde(rename = "ref", skip_serializing_if = "empty")]
     pub req_ref: String,
     /// request: petición inline (si no hay `ref`)
@@ -146,6 +146,12 @@ pub struct Node {
     pub caption: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<f64>,
+    /// Identificador visible y fijo del paso (SRV-01, CND-02…). Se asigna al crearlo.
+    #[serde(skip_serializing_if = "empty")]
+    pub sid: String,
+    /// Alto elegido al redimensionar el nodo en el lienzo (si no, el de su tipo).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
     /// Campos del resultado que el nodo muestra siempre, aunque nadie los use.
     #[serde(skip_serializing_if = "empty")]
     pub pins: Vec<String>,

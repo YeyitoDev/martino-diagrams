@@ -7,7 +7,7 @@ use martino_core::model::Request;
 use martino_core::vars::VarInfo;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -142,6 +142,13 @@ pub struct App {
     /// Aumenta cuando cambia algo que obliga a recargar la tabla de variables.
     pub vars_tick: RwSignal<u32>,
     pub loaded: RwSignal<bool>,
+    /// El flujo abierto tiene cambios sin guardar (lo publica el editor para la barra lateral).
+    pub flow_dirty: RwSignal<bool>,
+    /// Sube con «Guardar todo»: el editor de flujos guarda el suyo.
+    pub save_all: RwSignal<u32>,
+    /// Barra lateral: qué colecciones/carpetas están cerradas (sobrevive a las recargas) y qué tipo se ve.
+    pub side_closed: RwSignal<HashSet<String>>,
+    pub side_kind: RwSignal<&'static str>,
 }
 
 pub fn uid() -> String {
@@ -201,6 +208,10 @@ impl App {
             flow_open: RwSignal::new(None),
             vars_tick: RwSignal::new(0),
             loaded: RwSignal::new(false),
+            flow_dirty: RwSignal::new(false),
+            save_all: RwSignal::new(0),
+            side_closed: RwSignal::new(HashSet::new()),
+            side_kind: RwSignal::new("todo"),
         };
         APP.with(|a| a.set(app).ok());
         app
@@ -267,15 +278,15 @@ impl App {
         });
     }
 
-    /// Abre una petición guardada: si ya está abierta la enfoca, si no crea un panel.
+    /// Abre una petición guardada en la pantalla actual: si ya está en ella la enfoca, si no crea un panel
+    /// (aunque esté abierta en otra pantalla, para poder armar pantallas con los mismos endpoints).
     pub fn open_request(&self, col: String, path: String) {
         let a = *self;
-        let existing = a.screens.with_untracked(|ss| {
-            ss.iter().find_map(|s| s.panels.get_untracked().into_iter().find(|p| p.path.get_untracked().as_deref() == Some(&path) && p.collection.get_untracked() == col).map(|p| (s.id.clone(), p.id)))
+        let existing = a.current_screen().and_then(|s| {
+            s.panels.get_untracked().into_iter().find(|p| p.path.get_untracked().as_deref() == Some(&path) && p.collection.get_untracked() == col).map(|p| p.id)
         });
         a.mode.set(Mode::Requests);
-        if let Some((sid, pid)) = existing {
-            a.screen.set(sid);
+        if let Some(pid) = existing {
             a.active_panel.set(pid);
             return;
         }
@@ -298,6 +309,23 @@ impl App {
             s.panels.update(|ps| ps.push(p));
         }
         self.active_panel.set(id);
+    }
+
+    /// Peticiones abiertas con cambios sin guardar (sólo las que ya están en la colección).
+    pub fn dirty_panels(&self) -> Vec<Panel> {
+        self.screens.with(|ss| ss.iter().flat_map(|s| s.panels.get()).filter(|p| p.dirty.get() && p.path.get().is_some()).collect())
+    }
+
+    /// Guarda todas las peticiones con cambios y el flujo abierto.
+    pub fn save_everything(&self) {
+        self.dirty_panels().iter().for_each(|p| self.save_panel(p));
+        if self.flow_dirty.get_untracked() {
+            self.save_all.update(|n| *n += 1);
+        }
+    }
+
+    pub fn toggle_side(&self, key: &str) {
+        self.side_closed.update(|s| if !s.remove(key) { s.insert(key.to_string()); });
     }
 
     pub fn save_panel(&self, p: &Panel) {
@@ -387,8 +415,9 @@ impl App {
                "sidebar": self.sidebar.get_untracked(), "sidebarW": self.sidebar_w.get_untracked()})
     }
 
-    pub async fn restore_workspace(&self) {
-        let Ok(w) = api::get::<Value>("/api/workspaces").await else { return };
+    /// Devuelve false si el servidor no respondió: entonces no hay que guardar encima (se perdería el workspace).
+    pub async fn restore_workspace(&self) -> bool {
+        let Ok(w) = api::get::<Value>("/api/workspaces").await else { return false };
         if let Some(c) = w["collection"].as_str() {
             self.collection.set(c.into());
         }
@@ -435,6 +464,7 @@ impl App {
             }
             self.screens.set(screens);
         }
+        true
     }
 
     /// Escucha `/api/events` y se reconecta si se corta.

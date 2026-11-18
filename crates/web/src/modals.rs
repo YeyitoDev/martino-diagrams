@@ -143,7 +143,7 @@ fn EnvManager(focus: Option<String>) -> impl IntoView {
         }
     };
     let footer = view! {
-        <span class="muted grow">{move || if dirty.get() { "Cambios sin guardar" } else { "Los secretos se guardan en .workbench/secrets.json, nunca en el .bru" }}</span>
+        <span class="muted grow">{move || if dirty.get() { "Cambios sin guardar" } else { "Los secretos se guardan en .workbench/secrets.json, nunca en el archivo de la petición" }}</span>
         <button class="btn" on:click=move |_| new_env()>"＋ Entorno"</button>
         <button class="btn primary" disabled=move || !dirty.get() on:click=move |_| save()>"Guardar"</button>
     }
@@ -161,7 +161,7 @@ fn EnvManager(focus: Option<String>) -> impl IntoView {
                 <div style="overflow:auto;max-height:52vh">
                 <table class="matrix">
                     <thead><tr>
-                        <th>"Variable"</th><th title="Secreta: el valor no va al .bru">"🔒"</th>
+                        <th>"Variable"</th><th title="Secreta: el valor no va al archivo de la petición">"🔒"</th>
                         {move || envs.get().into_iter().map(|e| { let n = e.name.clone(); let n2 = n.clone(); view! {
                             <th class:act=move || active.get() == n title="Clic para activarlo" style="cursor:pointer" on:click=move |_| active.set(n2.clone())>
                                 {e.name.clone()}{move || (active.get() == e.name).then_some(" ●")}
@@ -347,7 +347,7 @@ fn ImportModal() -> impl IntoView {
         let input: web_sys::HtmlInputElement = event_target(&ev);
         let Some(f) = input.files().and_then(|l| l.get(0)) else { return };
         if name.get_untracked().is_empty() {
-            name.set(f.name().trim_end_matches(".json").trim_end_matches(".bru").replace(".postman_collection", ""));
+            name.set(f.name().trim_end_matches(".json").trim_end_matches(".bru").trim_end_matches(".yml").trim_end_matches(".yaml").replace(".postman_collection", ""));
         }
         spawn_local(async move {
             if let Ok(t) = wasm_bindgen_futures::JsFuture::from(f.text()).await {
@@ -382,8 +382,8 @@ fn ImportModal() -> impl IntoView {
     view! {
         <ModalFrame title="Importar" footer=footer>
             <div class="col">
-                <p class="muted">"Colección o entorno Postman v2.1 (.json) o una petición Bruno (.bru)."</p>
-                <input type="file" accept=".json,.bru" on:change=on_file />
+                <p class="muted">"Colección o entorno Postman v2.1 (.json) o una petición Bruno (.yml o .bru)."</p>
+                <input type="file" accept=".json,.bru,.yml,.yaml" on:change=on_file />
                 <textarea class="in" rows=6 data-noac placeholder="…o pega aquí el contenido" prop:value=move || text.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
                 <div class="row"><span class="muted" style="width:150px">"Nombre"</span><input class="in grow" data-noac prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) /></div>
                 <div class="row"><span class="muted" style="width:150px">"Dentro de"</span>
@@ -475,7 +475,7 @@ fn FolderModal() -> impl IntoView {
     view! {
         <ModalFrame title="Carpeta de trabajo">
             <div class="col" style="max-width:620px">
-                <p class="muted">"Todo lo tuyo vive en esta carpeta: "<span class="mono">"collections/"</span>" (.bru), "<span class="mono">"flows/"</span>" y "<span class="mono">".workbench/"</span>" (secretos y diseño). Puedes versionarla con git; los secretos no se suben."</p>
+                <p class="muted">"Todo lo tuyo vive en esta carpeta: "<span class="mono">"collections/"</span>" (.yml), "<span class="mono">"flows/"</span>" y "<span class="mono">".workbench/"</span>" (secretos y diseño). Puedes versionarla con git; los secretos no se suben."</p>
                 <div class="row"><span class="mono grow" title="Carpeta actual">{root}</span></div>
                 <div class="row">
                     <button class="btn primary" on:click=move |_| open_folder(None)>"Elegir carpeta…"</button>

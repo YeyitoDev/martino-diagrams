@@ -3,12 +3,11 @@
 use crate::api;
 use crate::flow_inspector::Inspector;
 use crate::requests::DND_REQ;
-use crate::state::{app, uid, App, ConfirmAction, Modal, TreeItem};
+use crate::state::{app, uid, ConfirmAction, Modal, TreeItem};
 use crate::ui::{copy, start_drag};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use martino_core::flow::{self, Edge, Flow, Node, NodeOut, Rule};
-use martino_core::model::Pair;
 use martino_core::usage::{used_by_key, Used};
 use serde_json::{json, Map, Value};
 use std::cell::Cell;
@@ -17,7 +16,6 @@ use std::rc::Rc;
 
 pub const W: f64 = 200.0;
 pub const H: f64 = 62.0;
-const PALETTE: [&str; 11] = ["input", "request", "extract", "condition", "data", "transform", "crypto", "lookup", "response", "end", "note"];
 
 pub fn label(kind: &str) -> &'static str {
     match kind {
@@ -38,24 +36,6 @@ pub fn label(kind: &str) -> &'static str {
     }
 }
 
-fn icon(kind: &str) -> &'static str {
-    match kind {
-        "start" => "●",
-        "input" => "⛁",
-        "request" => "⇄",
-        "extract" => "⤓",
-        "condition" => "◆",
-        "data" => "▤",
-        "transform" => "ƒ",
-        "crypto" => "🔒",
-        "lookup" => "⇆",
-        "response" => "↩",
-        "end" => "■",
-        "note" => "✎",
-        _ => "□",
-    }
-}
-
 fn port_label(p: &str) -> &'static str {
     match p {
         "error" => "error",
@@ -66,13 +46,34 @@ fn port_label(p: &str) -> &'static str {
 }
 
 /// Centro del puerto de salida. El `false` de una Condición sale por abajo; el resto, a la derecha.
+/// Identificador visible del paso: un Servicio muestra el ID de su petición (PAG-001); el resto,
+/// su código fijo (CND-01), que se asigna al crearlo.
+pub fn node_code(f: &Flow, n: &Node) -> String {
+    if n.kind == "request" && !n.req_ref.is_empty() {
+        let id = app().collections.with(|cs| cs.iter().find(|c| c.id == f.collection).and_then(|c| find_id(&c.items, &n.req_ref)));
+        if let Some(id) = id.filter(|i| !i.is_empty()) {
+            return id;
+        }
+    }
+    if n.sid.is_empty() { martino_core::layout::id_prefix(&n.kind).into() } else { n.sid.clone() }
+}
+
+fn find_id(items: &[TreeItem], path: &str) -> Option<String> {
+    items.iter().find_map(|i| if i.folder { find_id(&i.items, path) } else { (i.path == path).then(|| i.id.clone()) })
+}
+
+/// Ancho del nodo: el que le diste al redimensionarlo o el de siempre.
+pub fn node_w(n: &Node) -> f64 {
+    n.width.unwrap_or(W)
+}
+
 pub fn port_pos(n: &Node, port: &str) -> (f64, f64) {
     if n.kind == "condition" && port == "false" {
-        return (n.x + W / 2.0, n.y + H);
+        return (n.x + node_w(n) / 2.0, n.y + H);
     }
     let side: Vec<&str> = flow::ports(&n.kind).iter().copied().filter(|p| !(n.kind == "condition" && *p == "false")).collect();
     let i = side.iter().position(|p| *p == port).unwrap_or(0) as f64;
-    (n.x + W, n.y + H * (i + 1.0) / (side.len() as f64 + 1.0))
+    (n.x + node_w(n), n.y + H * (i + 1.0) / (side.len() as f64 + 1.0))
 }
 
 fn has_input(kind: &str) -> bool {
@@ -85,7 +86,7 @@ fn curve(x1: f64, y1: f64, x2: f64, y2: f64, down: bool) -> String {
     format!("M{x1},{y1} C{c1x},{c1y} {},{y2} {x2},{y2}", x2 - d)
 }
 
-/// Peticiones (.bru) de una colección, aplanadas: (ruta, nombre).
+/// Peticiones (.yml o .bru) de una colección, aplanadas: (ruta, nombre).
 pub fn bru_paths(items: &[TreeItem]) -> Vec<(String, String)> {
     items.iter().flat_map(|i| if i.folder { bru_paths(&i.items) } else { vec![(i.path.clone(), i.name.clone())] }).collect()
 }
@@ -106,7 +107,8 @@ pub fn new_node(kind: &str, f: &Flow, x: f64, y: f64) -> Node {
         _ => "nota",
     };
     let keys: Vec<String> = f.nodes.iter().map(|n| n.key.clone()).collect();
-    let mut n = Node { id: uid(), kind: kind.into(), key: flow::unique_key(base, &keys), name: label(kind).into(), x, y, ..Default::default() };
+    let sid = martino_core::layout::next_code(f, kind);
+    let mut n = Node { id: uid(), kind: kind.into(), key: flow::unique_key(base, &keys), name: label(kind).into(), sid, x, y, ..Default::default() };
     match kind {
         "input" | "data" => n.data = json!({}),
         "condition" => {
@@ -129,6 +131,8 @@ pub fn new_node(kind: &str, f: &Flow, x: f64, y: f64) -> Node {
 #[derive(Clone, Copy, PartialEq)]
 pub enum Pane {
     Canvas,
+    /// El mismo flujo como pasos numerados por etapa.
+    Story,
     Qa,
     Tables,
 }
@@ -166,6 +170,14 @@ pub struct Ed {
     pub used: Memo<HashMap<String, Vec<Used>>>,
     /// Qué respuesta muestran los nodos en el lienzo: usado | todo | nada.
     pub resp: RwSignal<&'static str>,
+    /// Panel derecho (inspector) visible.
+    pub insp: RwSignal<bool>,
+    /// Columna de servicios (selección rápida) visible.
+    pub svc: RwSignal<bool>,
+    /// Texto del buscador del lienzo: resalta los pasos que coinciden.
+    pub find: RwSignal<String>,
+    /// Último paso que llegó de la ejecución (lo cuenta el narrador).
+    pub last_step: RwSignal<Option<String>>,
     undo: StoredValue<Vec<Flow>>,
     redo: StoredValue<Vec<Flow>>,
     last: StoredValue<f64>,
@@ -201,6 +213,10 @@ impl Ed {
             table_list: RwSignal::new(vec![]),
             tables_of: RwSignal::new(String::new()),
             resp: RwSignal::new("usado"),
+            insp: RwSignal::new(true),
+            svc: RwSignal::new(true),
+            find: RwSignal::new(String::new()),
+            last_step: RwSignal::new(None),
             undo: StoredValue::new(vec![]),
             redo: StoredValue::new(vec![]),
             last: StoredValue::new(0.0),
@@ -283,6 +299,8 @@ impl Ed {
 
     fn load(&self, id: Option<String>, mut f: Flow) {
         let changed = flow::modernize_refs(&mut f);
+        // Flujos de antes: cada paso recibe su código fijo; se guarda con el próximo guardado.
+        martino_core::layout::assign_codes(&mut f);
         self.id.set(id.clone());
         self.flow.set(f);
         self.dirty.set(changed > 0);
@@ -347,17 +365,6 @@ impl Ed {
         }
     }
 
-    /// Cambia de flujo guardando antes el actual si tiene cambios.
-    fn switch(&self, id: String) {
-        let ed = *self;
-        spawn_local(async move {
-            if ed.dirty.get_untracked() && !ed.save().await {
-                return;
-            }
-            ed.open(id).await;
-        });
-    }
-
     pub fn run(&self) {
         let (ed, a) = (*self, app());
         if ed.running.get_untracked() {
@@ -411,8 +418,9 @@ impl Ed {
             });
         }
         self.steps.update(|s| {
-            s.insert(id, st.clone());
+            s.insert(id.clone(), st.clone());
         });
+        self.last_step.set(Some(id));
     }
 
     /// Ejecuta un solo nodo con lo que dejó la última ejecución (`seed`).
@@ -457,46 +465,30 @@ impl Ed {
         self.pane.update(|x| *x = if *x == p { Pane::Canvas } else { p });
     }
 
+    /// Acomoda los pasos en columnas (botón «Ordenar»); se puede deshacer.
+    pub fn arrange(&self) {
+        self.edit(|f| martino_core::layout::arrange(f, crate::flow_story::LANE_W, H + 80.0));
+        self.rev.update(|r| *r += 1);
+        self.fit();
+    }
+
+    /// Centra el lienzo en un paso.
+    pub fn focus(&self, id: &str) {
+        if let Some((x, y)) = self.flow.with_untracked(|f| f.node(id).map(|n| (n.x, n.y))) {
+            let z = self.view.get_untracked().2;
+            self.view.set((450.0 - x * z, 220.0 - y * z, z));
+            self.sel.set(Some(id.to_string()));
+        }
+    }
+
     /// Encuadra todos los nodos en el lienzo.
     pub fn fit(&self) {
         let (min_x, min_y) = self.flow.with_untracked(|f| f.nodes.iter().fold((f64::MAX, f64::MAX), |(x, y), n| (x.min(n.x), y.min(n.y))));
         if min_x == f64::MAX {
             self.view.set((40.0, 40.0, 1.0));
         } else {
-            self.view.set((60.0 - min_x, 50.0 - min_y, 1.0));
+            self.view.set((290.0 - min_x, 50.0 - min_y, 1.0)); // deja libre el panel de Entrada
         }
-    }
-}
-
-fn example(a: &App) -> Flow {
-    let col = a.collection.get_untracked();
-    let paths = a.coll().map(|c| bru_paths(&c.items)).unwrap_or_default();
-    let req = paths.iter().map(|p| p.0.clone()).find(|p| p == "Usuarios/Obtener-usuario.bru").or_else(|| paths.first().map(|p| p.0.clone())).unwrap_or_default();
-    let n = |id: &str, kind: &str, key: &str, name: &str, x: f64, y: f64| Node { id: id.into(), kind: kind.into(), key: key.into(), name: name.into(), x, y, ..Default::default() };
-    let pair = |k: &str, v: &str| Pair { name: k.into(), value: v.into(), enabled: true };
-    let mut entrada = n("e1", "input", "entrada", "Entrada", 40.0, 260.0);
-    entrada.data = json!({"userId": 1});
-    let mut svc = n("e2", "request", "usuario", "Obtener usuario", 320.0, 120.0);
-    svc.req_ref = req;
-    svc.vars = vec![pair("userId", "{{entrada.userId}}")];
-    let mut cond = n("e3", "condition", "existe", "¿Tiene correo?", 600.0, 120.0);
-    cond.mode = "all".into();
-    cond.rules = vec![Rule { left: "usuario.response.email".into(), op: "isDefined".into(), right: String::new() }];
-    let mut ok = n("e4", "response", "ok", "Respuesta 200", 900.0, 60.0);
-    ok.status = "200".into();
-    ok.body = json!({"id": "{{usuario.response.id}}", "nombre": "{{usuario.response.name}}", "correo": "{{usuario.response.email}}"});
-    let mut no = n("e5", "response", "no_existe", "Respuesta 404", 900.0, 300.0);
-    no.status = "404".into();
-    no.body = json!({"error": "Usuario {{entrada.userId}} no encontrado"});
-    let mut note = n("e6", "note", "nota", "Nota", 320.0, 300.0);
-    note.text = "Cambia userId a 999 en la Entrada y ejecuta: el servicio da 404 y el flujo sale por la rama de error.".into();
-    let e = |from: &str, port: &str, to: &str| Edge { from: from.into(), port: port.into(), to: to.into() };
-    Flow {
-        name: "Ejemplo: consultar usuario".into(),
-        collection: col,
-        nodes: vec![n("e0", "start", "inicio", "Inicio", 40.0, 120.0), entrada, svc, cond, ok, no, note],
-        edges: vec![e("e0", "out", "e2"), e("e2", "out", "e3"), e("e2", "error", "e5"), e("e3", "true", "e4"), e("e3", "false", "e5")],
-        ..Default::default()
     }
 }
 
@@ -546,6 +538,55 @@ pub fn FlowsView() -> impl IntoView {
         }
     });
     on_cleanup(move || keys.remove());
+    // Ctrl+V de un cURL sobre el lienzo (fuera de un campo): un paso Servicio con esa petición.
+    let paste = window_event_listener(leptos::ev::paste, move |e: web_sys::ClipboardEvent| {
+        let in_field = e.target().and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(t).ok()).is_some_and(|el| matches!(el.tag_name().as_str(), "INPUT" | "TEXTAREA"));
+        let t = e.clipboard_data().and_then(|d| d.get_data("text").ok()).unwrap_or_default();
+        if in_field || a.modal.get_untracked().is_some() || ed.pane.get_untracked() != Pane::Canvas || !martino_core::curl::is_curl(&t) {
+            return;
+        }
+        e.prevent_default();
+        if let Err(err) = crate::flow_panels::add_curl(ed, &t) {
+            a.err(err);
+        }
+    });
+    on_cleanup(move || paste.remove());
+    // Clic en un flujo de la barra lateral con el editor ya abierto: se cambia (guardando antes si hay cambios).
+    // Se recarga la lista porque el flujo puede ser nuevo (creado desde la barra lateral).
+    Effect::new(move |_| {
+        if let (Some(want), Some(cur)) = (a.flow_open.get(), ed.id.get_untracked()) {
+            if want != cur {
+                spawn_local(async move {
+                    if !ed.dirty.get_untracked() || ed.save().await {
+                        ed.refresh(Some(want));
+                    }
+                });
+            }
+        }
+    });
+    Effect::new(move |_| a.flow_dirty.set(ed.dirty.get()));
+    Effect::new(move |prev: Option<u32>| {
+        let n = a.save_all.get();
+        if prev.is_some() && ed.dirty.get_untracked() {
+            spawn_local(async move {
+                if ed.save().await {
+                    a.toast("ok", "Flujo guardado");
+                }
+            });
+        }
+        n
+    });
+    // Al salir del editor (p. ej. a Peticiones) no se pierden los cambios: se guardan.
+    on_cleanup(move || {
+        if let (Some(true), Some(Some(id)), Some(f)) = (ed.dirty.try_get_untracked(), ed.id.try_get_untracked(), ed.flow.try_get_untracked()) {
+            spawn_local(async move {
+                if let Err(e) = api::put::<Value>(&format!("/api/flow?id={}", api::enc(&id)), &f).await {
+                    app().err(format!("No se guardó el flujo: {e}"));
+                }
+            });
+        }
+        a.flow_dirty.set(false);
+    });
     view! {
         <div class="flows">
             <Toolbar />
@@ -554,7 +595,7 @@ pub fn FlowsView() -> impl IntoView {
                     <div class="empty grow col" style="align-items:center;justify-content:center">
                         <p>"Aún no hay flujos en esta carpeta."</p>
                         <div class="row">
-                            <button class="btn primary" on:click=move |_| spawn_local(async move { ed.create(example(&a)).await })>"Crear ejemplo"</button>
+                            <button class="btn primary" on:click=move |_| spawn_local(async move { ed.create(crate::flow_panels::example(&a)).await })>"Crear ejemplo"</button>
                             <button class="btn" on:click=move |_| spawn_local(async move { ed.create(Flow { name: "Nuevo flujo".into(), collection: a.collection.get_untracked(), ..Default::default() }).await })>"Flujo vacío"</button>
                         </div>
                     </div>
@@ -563,7 +604,8 @@ pub fn FlowsView() -> impl IntoView {
                 match ed.pane.get() {
                     Pane::Qa => view! { <crate::cases::CasesView /> }.into_any(),
                     Pane::Tables => view! { <crate::tables::TablesView /> }.into_any(),
-                    Pane::Canvas => view! { <div class="fbody"><Canvas /><Inspector /></div> }.into_any(),
+                    Pane::Story => view! { <div class="fbody"><crate::flow_story::StoryView />{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
+                    Pane::Canvas => view! { <div class="fbody">{move || ed.svc.get().then(|| view! { <crate::flow_panels::ServiceColumn /> })}<Canvas />{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
                 }
             }}
         </div>
@@ -573,12 +615,6 @@ pub fn FlowsView() -> impl IntoView {
 #[component]
 fn Toolbar() -> impl IntoView {
     let (a, ed) = (app(), ed());
-    let add = move |kind: &'static str| {
-        let n = ed.place(kind);
-        let id = n.id.clone();
-        ed.edit(|f| f.nodes.push(n));
-        ed.sel.set(Some(id));
-    };
     let del = move |_| {
         if let Some(id) = ed.id.get_untracked() {
             let name = ed.flow.with_untracked(|f| f.name.clone());
@@ -587,43 +623,45 @@ fn Toolbar() -> impl IntoView {
     };
     view! {
         <div class="ftool">
-            <select class="in" title="Flujo abierto" prop:value=move || ed.id.get().unwrap_or_default() on:change=move |e| ed.switch(event_target_value(&e))>
-                {move || ed.list.get().into_iter().map(|f| {
-                    let id = f["id"].as_str().unwrap_or("").to_string();
-                    let on = id.clone();
-                    view! { <option value=id.clone() selected=move || ed.id.get().as_deref() == Some(on.as_str())>{f["name"].as_str().unwrap_or(&id).to_string()}</option> }
-                }).collect_view()}
-            </select>
-            <span class="dirty-dot" class:on=move || ed.dirty.get() title="Cambios sin guardar"></span>
-            <button class="btn ghost" title="Nuevo flujo" on:click=move |_| spawn_local(async move {
-                ed.create(Flow { name: "Nuevo flujo".into(), collection: a.collection.get_untracked(), ..Default::default() }).await
-            })>"+ Nuevo"</button>
-            <button class="btn ghost" title="Crea un flujo de ejemplo con la colección activa" on:click=move |_| spawn_local(async move { ed.create(example(&a)).await })>"Ejemplo"</button>
-            <button class="btn ghost danger" title="Borrar este flujo" disabled=move || ed.id.get().is_none() on:click=del>"🗑"</button>
-            <span class="sep"></span>
-            {PALETTE.into_iter().map(|k| view! {
-                <button class="btn ghost sm" title=format!("Añadir {}", label(k)) on:click=move |_| add(k)>{icon(k)}" "{label(k)}</button>
-            }).collect_view()}
+            <button class="btn ghost sm" class:on=move || a.sidebar.get() title="Mostrar u ocultar la barra lateral (Ctrl+B)" on:click=move |_| a.sidebar.update(|s| *s = !*s)>"☰"</button>
+            <div class="tgroup" title="Flujo abierto: cámbialo desde la barra lateral">
+                <input class="in ftitle" data-noac title="Nombre del flujo" prop:value=move || ed.flow.with(|f| f.name.clone())
+                    on:change=move |e| { let v = event_target_value(&e); ed.edit(|f| f.name = v) } />
+                <span class="dirty-dot" class:on=move || ed.dirty.get() title="Cambios sin guardar"></span>
+                <button class="btn ghost sm danger" title="Borrar este flujo" disabled=move || ed.id.get().is_none() on:click=del>"🗑"</button>
+            </div>
+            <div class="views" title="Ver el flujo como lienzo o como historia (pasos numerados por etapa)">
+                <button class:on=move || ed.pane.get() != Pane::Story on:click=move |_| ed.pane.set(Pane::Canvas)>"Lienzo"</button>
+                <button class:on=move || ed.pane.get() == Pane::Story on:click=move |_| ed.pane.set(Pane::Story)>"Historia"</button>
+            </div>
+            <button class="btn ghost sm" class:on=move || ed.svc.get() title="Columna de servicios de la colección: clic o arrastra para añadir" on:click=move |_| ed.svc.update(|v| *v = !*v)>"▤ Servicios"</button>
+            <crate::flow_panels::AddStep />
+            <div class="tgroup" title="Editar">
+                <button class="btn ghost sm" title="Deshacer (Ctrl+Z)" on:click=move |_| ed.travel(true)>"↶"</button>
+                <button class="btn ghost sm" title="Rehacer (Ctrl+Y)" on:click=move |_| ed.travel(false)>"↷"</button>
+                <button class="btn ghost sm" title="Encuadrar todo" on:click=move |_| ed.fit()>"⊡"</button>
+                <button class="btn ghost sm" class:hot=move || !ed.flow.with(crate::flow_story::in_lanes)
+                    title="Ordenar: acomoda cada paso en el carril de su etapa (Datos, Validar, Preparar, Enviar, Responder). Ctrl+Z deshace" on:click=move |_| ed.arrange()>"⇶ Ordenar"</button>
+            </div>
             <span class="grow"></span>
-            <button class="btn ghost" title="Deshacer (Ctrl+Z)" on:click=move |_| ed.travel(true)>"↶"</button>
-            <button class="btn ghost" title="Rehacer (Ctrl+Y)" on:click=move |_| ed.travel(false)>"↷"</button>
-            <button class="btn ghost" title="Encuadrar" on:click=move |_| ed.fit()>"⊡"</button>
-            <span class="seg" title="Qué respuesta se ve debajo de cada nodo después de ejecutar">
-                <span class="muted">"Respuesta:"</span>
-                {[("usado", "Lo usado"), ("todo", "Todo"), ("nada", "Nada")].into_iter().map(|(k, l)| view! {
-                    <button class:on=move || ed.resp.get() == k on:click=move |_| ed.resp.set(k)>{l}</button>
-                }).collect_view()}
-            </span>
-            <button class="btn ghost" class:on=move || ed.pane.get() == Pane::Tables title="Tablas de equivalencia de la colección (código → nombre)" on:click=move |_| ed.toggle(Pane::Tables)>"⇆ Tablas"</button>
-            <button class="btn ghost" class:on=move || ed.pane.get() == Pane::Qa title="Casos de prueba de este flujo: importar CSV, qué esperas y ejecutar" on:click=move |_| ed.toggle(Pane::Qa)>
-                {move || format!("☰ Casos QA · {}", ed.flow.with(|f| f.cases.len()))}
-            </button>
-            <button class="btn ghost" class:on=move || ed.code.get() title="Ver y editar el flujo como YAML o JSON" on:click=move |_| ed.code.update(|c| *c = !*c)>"</> Código"</button>
-            <label class="row muted" title="Compara la respuesta con el servicio global real"><input type="checkbox" prop:checked=move || ed.compare.get() on:change=move |e| ed.compare.set(event_target_checked(&e)) />"Comparar"</label>
-            <button class="btn" title="Guardar (Ctrl+S)" disabled=move || !ed.dirty.get() on:click=move |_| spawn_local(async move { if ed.save().await { a.toast("ok", "Flujo guardado") } })>"Guardar"</button>
-            <button class="btn primary" title="Ejecutar el flujo (Ctrl+Enter)" disabled=move || ed.running.get() on:click=move |_| ed.run()>
-                {move || if ed.running.get() { "Ejecutando…" } else { "▶ Ejecutar" }}
-            </button>
+            <div class="tgroup" title="Ver">
+                <select class="in sm" title="Qué datos se ven debajo de cada nodo después de ejecutar" on:change=move |e| ed.resp.set(match event_target_value(&e).as_str() { "todo" => "todo", "nada" => "nada", _ => "usado" })>
+                    {[("usado", "Datos: lo usado"), ("todo", "Datos: todo"), ("nada", "Datos: ocultos")].into_iter().map(|(k, l)| view! { <option value=k selected=move || ed.resp.get() == k>{l}</option> }).collect_view()}
+                </select>
+                <button class="btn ghost sm" class:on=move || ed.pane.get() == Pane::Tables title="Tablas de equivalencia de la colección (código → nombre)" on:click=move |_| ed.toggle(Pane::Tables)>"⇆ Tablas"</button>
+                <button class="btn ghost sm" class:on=move || ed.pane.get() == Pane::Qa title="Casos de prueba de este flujo: importar CSV, qué esperas y ejecutar" on:click=move |_| ed.toggle(Pane::Qa)>
+                    {move || format!("☰ Casos {}", ed.flow.with(|f| f.cases.len()))}
+                </button>
+                <button class="btn ghost sm" class:on=move || ed.code.get() title="Ver y editar el flujo como YAML o JSON" on:click=move |_| ed.code.update(|c| *c = !*c)>"</>"</button>
+            </div>
+            <div class="tgroup" title="Ejecutar">
+                <label class="row muted sm" title="Compara la respuesta con el servicio global real"><input type="checkbox" prop:checked=move || ed.compare.get() on:change=move |e| ed.compare.set(event_target_checked(&e)) />"Comparar"</label>
+                <button class="btn sm" title="Guardar (Ctrl+S)" disabled=move || !ed.dirty.get() on:click=move |_| spawn_local(async move { if ed.save().await { a.toast("ok", "Flujo guardado") } })>"Guardar"</button>
+                <button class="btn primary sm" title="Ejecutar el flujo (Ctrl+Enter)" disabled=move || ed.running.get() on:click=move |_| ed.run()>
+                    {move || if ed.running.get() { "Ejecutando…" } else { "▶ Ejecutar" }}
+                </button>
+            </div>
+            <button class="btn ghost sm" class:on=move || ed.insp.get() title="Mostrar u ocultar el panel de propiedades" on:click=move |_| ed.insp.update(|v| *v = !*v)>"⚙ Panel"</button>
         </div>
     }
 }
@@ -660,6 +698,15 @@ fn Canvas() -> impl IntoView {
     };
     let drop = move |e: web_sys::DragEvent| {
         e.prevent_default();
+        if let (Some(kind), Some(el)) = (e.data_transfer().and_then(|d| d.get_data(crate::flow_panels::DND_NODE).ok()).filter(|s| !s.is_empty()), wrap.get_untracked()) {
+            let ((px, py, z), r) = (ed.view.get_untracked(), el.get_bounding_client_rect());
+            let (x, y) = (((e.client_x() as f64 - r.left() - px) / z - W / 2.0).round(), ((e.client_y() as f64 - r.top() - py) / z - H / 2.0).round());
+            let n = ed.flow.with_untracked(|f| new_node(&kind, f, x, y));
+            let id = n.id.clone();
+            ed.edit(|f| f.nodes.push(n));
+            ed.sel.set(Some(id));
+            return;
+        }
         let Some(data) = e.data_transfer().and_then(|d| d.get_data(DND_REQ).ok()).filter(|s| !s.is_empty()) else { return };
         let Ok(v) = serde_json::from_str::<Value>(&data) else { return };
         let (Some(el), (px, py, z)) = (wrap.get_untracked(), ed.view.get_untracked()) else { return };
@@ -672,7 +719,8 @@ fn Canvas() -> impl IntoView {
             return;
         }
         let mut n = ed.flow.with_untracked(|f| new_node("request", f, x, y));
-        n.name = path.rsplit('/').next().unwrap_or(&path).trim_end_matches(".bru").replace('-', " ");
+        let file = path.rsplit('/').next().unwrap_or(&path);
+        n.name = martino_core::yaml_req::strip_ext(file).unwrap_or(file).replace('-', " ");
         n.key = ed.flow.with_untracked(|f| flow::unique_key(&n.name, &f.nodes.iter().map(|n| n.key.clone()).collect::<Vec<_>>()));
         n.req_ref = path;
         let id = n.id.clone();
@@ -686,6 +734,7 @@ fn Canvas() -> impl IntoView {
     };
     let edges = move || {
         let sel = ed.sel_edge.get();
+        let st = ed.state.get();
         ed.flow.with(|f| {
             f.edges
                 .iter()
@@ -694,7 +743,13 @@ fn Canvas() -> impl IntoView {
                     let (from, to) = (f.node(&e.from)?, f.node(&e.to)?);
                     let (x1, y1) = port_pos(from, &e.port);
                     let d = curve(x1, y1, to.x, to.y + H / 2.0, from.kind == "condition" && e.port == "false");
-                    let cls = format!("fe p-{}{}", e.port, if sel == Some(i) { " sel" } else { "" });
+                    // Camino recorrido: el origen terminó y el destino llegó a correr; «go» si el destino sigue corriendo.
+                    let walk = match (st.get(&e.from).copied(), st.get(&e.to).copied()) {
+                        (Some("ok" | "err"), Some("running")) => " lit go",
+                        (Some("ok" | "err"), Some(_)) => " lit",
+                        _ => "",
+                    };
+                    let cls = format!("fe p-{}{walk}{}", e.port, if sel == Some(i) { " sel" } else { "" });
                     Some(view! {
                         <g on:pointerdown=move |ev: web_sys::PointerEvent| { ev.stop_propagation(); ed.sel_edge.set(Some(i)); ed.sel.set(None) }>
                             <title>"Clic para seleccionar · Supr la borra"</title>
@@ -707,8 +762,11 @@ fn Canvas() -> impl IntoView {
         })
     };
     view! {
-        <div class="fcanvas" node_ref=wrap on:pointerdown=bg_down on:wheel=wheel on:dragover=|e: web_sys::DragEvent| e.prevent_default() on:drop=drop>
+        <div class="fcanvas" node_ref=wrap on:pointerdown=bg_down on:wheel=wheel
+            // El lienzo se mueve con su propio arrastre/zoom; si el navegador lo desplaza solo (foco, clic), se devuelve.
+            on:scroll=move |_| if let Some(el) = wrap.get_untracked() { el.set_scroll_left(0); el.set_scroll_top(0); } on:dragover=|e: web_sys::DragEvent| e.prevent_default() on:drop=drop>
             <div class="fworld" style=move || { let (x, y, z) = ed.view.get(); format!("transform:translate({x}px,{y}px) scale({z})") }>
+                <crate::flow_story::Lanes />
                 <svg class="fedges">
                     {edges}
                     {move || link.get().map(|(_, port, x1, y1, x2, y2)| view! { <path class="fe tmp" d=curve(x1, y1, x2, y2, port == "false") /> })}
@@ -717,6 +775,9 @@ fn Canvas() -> impl IntoView {
                     <NodeView id=id link=link />
                 </For>
             </div>
+            <crate::flow_panels::InputDock />
+            <crate::flow_panels::CanvasSearch />
+            <crate::flow_story::Guide />
             <ResultBar />
             {move || ed.flow.with(|f| f.nodes.is_empty()).then(|| view! {
                 <div class="fhint">"Arrastra peticiones desde la barra lateral o añade nodos con la barra de arriba. Une nodos arrastrando desde el punto de la derecha."</div>
@@ -733,7 +794,7 @@ fn NodeView(id: String, link: RwSignal<Option<Link>>) -> impl IntoView {
     let id_c = id.clone();
     let joins = Memo::new(move |_| ed.flow.with(|f| f.edges.iter().filter(|e| e.to == id_c).count()));
     let id_s = id.clone();
-    let state = move || ed.state.with(|s| s.get(&id_s).copied().unwrap_or(""));
+    let state = move || ed.state.with(|s| s.get(&id_s).copied()).unwrap_or(if ed.result.with(Option::is_some) { "idle" } else { "" });
     let id_d = id.clone();
     let down = move |e: web_sys::PointerEvent| {
         e.stop_propagation();
@@ -827,23 +888,27 @@ fn NodeView(id: String, link: RwSignal<Option<Link>>) -> impl IntoView {
             })
             .collect_view()
     };
-    let sub = move || {
-        node.with(|n| match n.kind.as_str() {
-            "request" => if n.req_ref.is_empty() { "petición inline".into() } else { n.req_ref.clone() },
-            "condition" => format!("{} regla(s) · {}", n.rules.len(), if n.mode == "any" { "alguna" } else { "todas" }),
-            "extract" => n.vars.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "),
-            "response" => format!("status {}", if n.status.is_empty() { "200" } else { &n.status }),
-            "input" | "data" => n.data.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>().join(", ")).unwrap_or_default(),
-            "transform" => "JavaScript".into(),
-            "crypto" => n.crypto.as_ref().map(|c| format!("{} · {}", martino_core::crypto::op_label(&c.op, &c.format), martino_core::crypto::format(&c.format).map(|f| f.name).unwrap_or(""))).unwrap_or_default(),
-            "lookup" => n.lookup.as_ref().filter(|l| !l.table.is_empty()).map(|l| format!("tabla {}", l.table)).unwrap_or_else(|| "elige una tabla".into()),
-            "note" => n.text.clone(),
-            _ => n.desc.clone(),
-        })
-    };
+    let sub = move || ed.flow.with(|f| node.with(|n| crate::flow_story::sentence(f, n)));
     let id_r = id.clone();
     let id_t = id.clone();
     let id_sel = id.clone();
+    let (id_rules, id_g, id_g2) = (id.clone(), id.clone(), id.clone());
+    // Esquina inferior derecha: ancho del nodo y alto de su respuesta.
+    let resize = move |e: web_sys::PointerEvent| {
+        e.stop_propagation();
+        let n = node.get_untracked();
+        let (w0, h0, z) = (node_w(&n), n.height.unwrap_or(120.0), ed.view.get_untracked().2);
+        let id = id_g.clone();
+        ed.snapshot();
+        start_drag(&e, move |dx, dy| {
+            let (w, h) = (((w0 + dx / z) / 10.0).round() * 10.0, ((h0 + dy / z) / 10.0).round() * 10.0);
+            ed.flow.update(|f| if let Some(n) = f.nodes.iter_mut().find(|n| n.id == id) {
+                n.width = Some(w.clamp(160.0, 720.0));
+                n.height = Some(h.clamp(60.0, 800.0));
+            });
+            ed.dirty.set(true);
+        }, || {});
+    };
     let meta = move || {
         ed.steps.with(|s| s.get(&id_t).map(|st| {
             let status = st["out"]["status"].as_u64().map(|s| format!("{s} · ")).unwrap_or_default();
@@ -851,14 +916,19 @@ fn NodeView(id: String, link: RwSignal<Option<Link>>) -> impl IntoView {
         }))
     };
     view! {
-        <div class=move || format!("fnode k-{} {}", node.with(|n| n.kind.clone()), state()) class:sel=move || ed.sel.get().as_deref() == Some(id_sel.as_str())
+        <div class=move || format!("fnode k-{} {} {}", node.with(|n| n.kind.clone()), state(), {
+                let q = ed.find.get().trim().to_lowercase();
+                if q.is_empty() { "" } else if ed.flow.with(|f| node.with(|n| crate::flow_panels::matches(f, n, &q))) { "found" } else { "faded" }
+            }) class:sel=move || ed.sel.get().as_deref() == Some(id_sel.as_str())
             data-node=id.clone()
-            style=move || node.with(|n| format!("left:{}px;top:{}px;{}", n.x, n.y, if n.color.is_empty() { String::new() } else { format!("--nc:{}", n.color) }))
+            style=move || node.with(|n| format!("left:{}px;top:{}px;width:{}px;{}{}", n.x, n.y, node_w(n),
+                n.height.map(|h| format!("--rh:{h}px;")).unwrap_or_default(), if n.color.is_empty() { String::new() } else { format!("--nc:{}", n.color) }))
             on:pointerdown=down>
             {move || (joins.get() > 1).then(|| view! { <span class="fjoin">{format!("⇉ une {} ramas", joins.get())}</span> })}
             {move || has_input(&node.with(|n| n.kind.clone())).then(|| view! { <div class="fport in"></div> })}
             <div class="fn-top">
-                <span class="fn-ic" title=move || label(&node.with(|n| n.kind.clone()))>{move || icon(&node.with(|n| n.kind.clone()))}</span>
+                <span class=move || format!("kshape k-{}", node.with(|n| n.kind.clone())) title=move || label(&node.with(|n| n.kind.clone()))></span>
+                <span class="fn-id" title=move || format!("{} · identificador del paso", label(&node.with(|n| n.kind.clone())))>{move || ed.flow.with(|f| node_code(f, &node.get()))}</span>
                 <span class="fn-ref" title="Clave del nodo · clic copia {{clave}}" on:pointerdown=|e| e.stop_propagation()
                     on:click=move |_| copy(&format!("{{{{{}}}}}", node.with_untracked(|n| n.key.clone())))>{move || node.with(|n| n.key.clone())}</span>
                 <span class="grow"></span>
@@ -871,7 +941,10 @@ fn NodeView(id: String, link: RwSignal<Option<Link>>) -> impl IntoView {
             <div class="fn-name">{move || node.with(|n| if n.name.is_empty() { label(&n.kind).to_string() } else { n.name.clone() })}</div>
             <div class="fn-sub">{sub}</div>
             {ports}
+            {move || (node.with(|n| n.kind == "condition" && n.rules.len() > 1)).then(|| view! { <crate::flow_steps::RuleList id=id_rules.clone() /> })}
             <crate::flow_steps::NodeResp id=id.clone() />
+            <div class="fn-grip" title="Arrastra para cambiar el tamaño (doble clic: tamaño normal)" on:pointerdown=resize
+                on:dblclick=move |e| { e.stop_propagation(); ed.edit_node(&id_g2, |n| { n.width = None; n.height = None }) }></div>
         </div>
     }
 }

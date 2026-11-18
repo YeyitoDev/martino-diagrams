@@ -153,7 +153,7 @@ async fn guard(State(core): S, req: HttpRequest, next: Next) -> Response {
         let c = core.cfg.read().unwrap();
         (c.port, c.public_key.clone())
     };
-    let set_cookie = match denied(&req, port, key.as_deref()) {
+    let set_cookie = match denied(&req, port, key.as_deref(), EXPOSED.get().copied().unwrap_or(false)) {
         Err(msg) => return (StatusCode::FORBIDDEN, msg).into_response(),
         Ok(s) => s,
     };
@@ -172,23 +172,35 @@ async fn guard(State(core): S, req: HttpRequest, next: Next) -> Response {
 /// Túneles aceptados en modo `--public`: Cloudflare y Tailscale (`tailscale serve`).
 const TUNNEL_SUFFIXES: [&str; 2] = [".trycloudflare.com", ".ts.net"];
 
+static EXPOSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// El servidor escucha fuera de la máquina (MARTINO_BIND): ningún Host cuenta como local.
+pub fn set_exposed(v: bool) {
+    let _ = EXPOSED.set(v);
+}
+
+/// Host público exacto aceptado además de los túneles (`MARTINO_PUBLIC_HOST=martino.fly.dev`).
+fn public_host_ok(name: &str) -> bool {
+    TUNNEL_SUFFIXES.iter().any(|s| name.ends_with(s)) || std::env::var("MARTINO_PUBLIC_HOST").is_ok_and(|h| !h.is_empty() && h.eq_ignore_ascii_case(name))
+}
+
 fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Local: Host/Origin locales. Público (`--public`): solo el host del túnel y con la llave
 /// (en `?key=` la primera vez; luego en una cookie HttpOnly). `Ok(true)` = hay que fijar la cookie.
-fn denied(req: &HttpRequest, port: u16, key: Option<&str>) -> Result<bool, &'static str> {
+fn denied(req: &HttpRequest, port: u16, key: Option<&str>, exposed: bool) -> Result<bool, &'static str> {
     let hv = |n: header::HeaderName| req.headers().get(n).and_then(|v| v.to_str().ok());
     let host = hv(header::HOST).unwrap_or("");
     let mut set_cookie = false;
-    if local_host(host, port) {
+    if !exposed && local_host(host, port) {
         if hv(header::ORIGIN).is_some_and(|o| !o.strip_prefix("http://").is_some_and(|h| local_host(h, port))) {
             return Err("Origin no permitido");
         }
     } else {
         let name = host.rsplit_once(':').map_or(host, |(h, _)| h);
-        let Some(key) = key.filter(|_| TUNNEL_SUFFIXES.iter().any(|s| name.ends_with(s))) else { return Err("Host no permitido") };
+        let Some(key) = key.filter(|_| public_host_ok(name)) else { return Err("Host no permitido") };
         let cookie_ok = req.headers().get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()).flat_map(|c| c.split(';')).any(|c| c.trim().strip_prefix("martino_key=").is_some_and(|v| same(v, key)));
         let query_ok = req.uri().query().unwrap_or("").split('&').any(|kv| kv.strip_prefix("key=").is_some_and(|v| same(v, key)));
         if !cookie_ok && !query_ok {
@@ -267,7 +279,7 @@ async fn put_root(State(c): S, Query(p): Q, Json(r): Json<Request>) -> ApiResult
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct ImportBody {
-    /// JSON de Postman (colección o entorno) o texto .bru
+    /// JSON de Postman (colección o entorno) o el texto de una petición (.yml o .bru)
     data: Value,
     name: Option<String>,
     collection: Option<String>,
@@ -277,10 +289,10 @@ struct ImportBody {
 
 async fn import(State(c): S, Json(b): Json<ImportBody>) -> ApiResult {
     if let Value::String(text) = &b.data {
-        let col = b.collection.as_deref().ok_or_else(|| "Para importar un .bru elige una colección".to_string())?;
-        let mut r = martino_core::bru::parse_request(text);
+        let col = b.collection.as_deref().ok_or_else(|| "Para importar una petición elige una colección".to_string())?;
+        let mut r = martino_core::yaml_req::parse_request(text).ok().filter(|r| !r.method.is_empty()).unwrap_or_else(|| martino_core::bru::parse_request(text));
         if r.method.is_empty() {
-            return Err("El texto no es una petición .bru".to_string().into());
+            return Err("El texto no es una petición .yml ni .bru".to_string().into());
         }
         if let Some(n) = &b.name {
             r.name = n.clone();
@@ -711,4 +723,23 @@ async fn node_run(State(c): S, Json(b): Json<NodeRunBody>) -> ApiResult {
     let step = run_node(&c, &flow, &b.node_id, b.seed, b.env.as_deref()).await?;
     let vars: serde_json::Map<String, Value> = step.set_vars.clone();
     ok(json!({"step": step, "vars": vars, "out": NodeOut { ..step.out.clone() }}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req(host: &str, path: &str) -> HttpRequest {
+        axum::http::Request::builder().uri(path).header(header::HOST, host).header("x-workbench", "1").body(axum::body::Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn expuesto_pide_llave_aunque_digan_ser_local() {
+        let key = Some("llave-de-prueba-de-24-caracteres");
+        assert!(denied(&req("127.0.0.1:4400", "/api/flows"), 4400, key, false).is_ok(), "en la Mac, lo local entra");
+        assert!(denied(&req("127.0.0.1:4400", "/api/flows"), 4400, key, true).is_err(), "expuesto: Host local sin llave no entra");
+        assert!(denied(&req("evil.example.com", "/api/flows?key=llave-de-prueba-de-24-caracteres"), 4400, key, true).is_err(), "host ajeno no entra ni con llave");
+        assert!(denied(&req("x.ts.net", "/api/flows"), 4400, key, true).is_err(), "túnel sin llave no entra");
+        assert_eq!(denied(&req("x.ts.net", "/api/flows?key=llave-de-prueba-de-24-caracteres"), 4400, key, true), Ok(true), "túnel con llave entra y fija la cookie");
+    }
 }

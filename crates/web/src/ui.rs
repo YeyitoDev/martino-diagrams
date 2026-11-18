@@ -28,6 +28,9 @@ fn flow_keys() -> Vec<String> {
 }
 
 pub fn var_source(name: &str) -> VarSource {
+    if name.starts_with("tabla.") {
+        return VarSource::Flow;
+    }
     let a = app();
     a.vars.with(|t| classify(name, t, &flow_keys()))
 }
@@ -141,11 +144,26 @@ pub fn VarField(
         }
         .into_any()
     };
+    // Debajo del campo: el valor de cada `{{nodo.campo}}` del flujo, para validar el mapeo sin pasar el mouse.
+    let preview = move || {
+        let text = value.get();
+        let refs: Vec<(String, String)> = segments(&text)
+            .into_iter()
+            .filter_map(|s| match s {
+                Seg::Var(n, _) if var_source(n) == VarSource::Flow => var_value(n).map(|v| (n.to_string(), v.0)),
+                _ => None,
+            })
+            .collect();
+        (!refs.is_empty()).then(|| view! {
+            <div class="vf-prev">{refs.into_iter().map(|(n, v)| view! { <span><span class="mono v-flow">{n}</span>" = "<b class="mono">{v}</b></span> }).collect_view()}</div>
+        })
+    };
     view! {
         <div class="vf" class:multi=multi>
             <div class="hl-back" node_ref=back aria-hidden="true">{segs}</div>
             {field}
         </div>
+        {preview}
     }
 }
 
@@ -181,7 +199,24 @@ pub fn VarTip() -> impl IntoView {
 #[component]
 pub fn VarLegend() -> impl IntoView {
     let items = [VarSource::Runtime, VarSource::Request, VarSource::Env, VarSource::Secret, VarSource::Collection, VarSource::Dotenv, VarSource::Dynamic, VarSource::Flow, VarSource::Missing];
-    view! { <div class="legend">{items.into_iter().map(|s| view! { <span class=s.css()>{s.label()}</span> }).collect_view()}</div> }
+    let why = |s: VarSource| match s {
+        VarSource::Runtime => "la creó una petición o un flujo al ejecutarse",
+        VarSource::Request => "definida en la propia petición (pestaña Vars)",
+        VarSource::Env => "del entorno activo",
+        VarSource::Secret => "secreta del entorno: no se guarda en git",
+        VarSource::Collection => "común a toda la colección",
+        VarSource::Dotenv => "del archivo .env",
+        VarSource::Dynamic => "se genera sola al enviar ($uuid, $timestamp…)",
+        VarSource::Flow => "dato de otro paso del flujo",
+        VarSource::Missing => "no existe en este entorno: falta definirla",
+    };
+    view! {
+        <details class="legend-box">
+            <summary>"¿Qué significa cada color?"</summary>
+            <p class="muted">"El color de un "<span class="mono">"{{…}}"</span>" dice de dónde sale su valor. Si el mismo nombre está en varios lugares, gana el de más arriba."</p>
+            <div class="legend">{items.into_iter().map(|s| view! { <div><span class=format!("ldot {}", s.css())>"●"</span><b>{s.label()}</b><span class="muted">{why(s)}</span></div> }).collect_view()}</div>
+        </details>
+    }
 }
 
 // ---------- autocompletado ----------
@@ -195,6 +230,8 @@ struct Ac {
     start: usize,
     caret: usize,
     double: bool,
+    /// Ruta sin llaves (`entrada.campo`, como en Condición): se inserta tal cual.
+    bare: bool,
 }
 
 thread_local! {
@@ -268,11 +305,11 @@ pub fn Autocomplete() -> impl IntoView {
                 let Some((v, _)) = field_value(el) else { return };
                 let u: Vec<u16> = v.encode_utf16().collect();
                 let mut after = String::from_utf16_lossy(&u[s.caret.min(u.len())..]);
-                if after.starts_with("}}") {
+                if after.starts_with("}}") && !s.bare {
                     after = after[2..].to_string();
                 }
                 let before = String::from_utf16_lossy(&u[..s.start.min(u.len())]);
-                let ins = format!("{{{{{name}}}}}");
+                let ins = if s.bare { name } else { format!("{{{{{name}}}}}") };
                 let caret = before.encode_utf16().count() + ins.encode_utf16().count();
                 set_field(el, &format!("{before}{ins}{after}"), caret);
                 if let Some(h) = el.dyn_ref::<HtmlElement>() {
@@ -297,12 +334,23 @@ pub fn Autocomplete() -> impl IntoView {
                 _ => None,
             },
         };
+        // Sin llaves: `entrada.` (o cualquier clave de nodo seguida de punto) también sugiere sus campos.
+        let bare_tok = || {
+            let i = before.char_indices().rev().find(|(_, c)| !(c.is_alphanumeric() || "_.-$[]".contains(*c))).map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+            let tok = &before[i..];
+            let head = tok.split('.').next().unwrap_or("");
+            (tok.contains('.') && flow_keys().iter().any(|k| k == head)).then(|| (i, false, tok.to_string()))
+        };
+        let (found, bare) = match found {
+            Some(f) => (Some(f), false),
+            None => (bare_tok(), true),
+        };
         let Some((byte_i, double, partial)) = found else {
             st.set(None);
             return;
         };
         let p = partial.to_lowercase();
-        let mut items: Vec<_> = candidates().into_iter().filter(|c| p.is_empty() || c.0.to_lowercase().contains(&p)).collect();
+        let mut items: Vec<_> = candidates().into_iter().filter(|c| p.is_empty() || if bare { c.0.to_lowercase().starts_with(&p) && c.0.len() > p.len() } else { c.0.to_lowercase().contains(&p) }).collect();
         items.sort_by_key(|c| (!c.0.to_lowercase().starts_with(&p), c.0.matches('.').count(), c.0.clone()));
         items.truncate(50);
         if items.is_empty() {
@@ -316,10 +364,11 @@ pub fn Autocomplete() -> impl IntoView {
             x: r.left(),
             y: r.bottom().min(web_sys::window().unwrap().inner_height().unwrap().as_f64().unwrap() - 270.0),
             items,
-            sel: double.then_some(0),
+            sel: (double || bare).then_some(0),
             start: before[..byte_i].encode_utf16().count(),
             caret,
-            double,
+            double: double || bare,
+            bare,
         }));
     };
     let on_key = move |ev: &web_sys::Event| {
@@ -572,4 +621,95 @@ pub fn download(name: &str, mime: &str, content: &str) {
     a.set_download(name);
     a.click();
     let _ = web_sys::Url::revoke_object_url(&url);
+}
+
+/// El gato de la marca: parpadea y mira a los lados (quieto con «Reducir movimiento»).
+#[component]
+pub fn Cat() -> impl IntoView {
+    view! {
+        <svg class="cat" viewBox="0 0 512 512" aria-hidden="true">
+            <rect width="512" height="512" rx="96" fill="#f5c518" />
+            <g clip-path="inset(0 round 96px)">
+                <ellipse cx="256" cy="520" rx="190" ry="120" fill="#0b0b0c" />
+                <polygon points="118,236 138,70 244,170" fill="#0b0b0c" />
+                <polygon points="394,236 374,70 268,170" fill="#0b0b0c" />
+                <ellipse cx="256" cy="290" rx="158" ry="140" fill="#0b0b0c" />
+                <g class="cat-eyes">
+                    <ellipse cx="196" cy="280" rx="40" ry="32" fill="#f5c518" />
+                    <ellipse cx="316" cy="280" rx="40" ry="32" fill="#f5c518" />
+                    <g class="cat-pupils">
+                        <ellipse cx="196" cy="280" rx="8" ry="27" fill="#0b0b0c" />
+                        <ellipse cx="316" cy="280" rx="8" ry="27" fill="#0b0b0c" />
+                    </g>
+                </g>
+                <polygon points="242,334 270,334 256,350" fill="#3a3a3e" />
+            </g>
+        </svg>
+    }
+}
+
+/// Botón ⓘ: la ayuda larga queda plegada y se abre al hacer clic.
+#[component]
+pub fn Info(children: Children) -> impl IntoView {
+    let open = RwSignal::new(false);
+    view! {
+        <div class="info">
+            <button class="info-b" class:on=move || open.get() title="Cómo funciona" on:click=move |_| open.update(|o| *o = !*o)>"ⓘ Cómo funciona"</button>
+            <div class="info-t" style:display=move || if open.get() { "block" } else { "none" }>{children()}</div>
+        </div>
+    }
+}
+
+thread_local! {
+    /// Elemento con globo de ayuda visible (su `title` se quita mientras tanto para no duplicarlo).
+    static HOVER: RefCell<Option<Element>> = const { RefCell::new(None) };
+}
+
+/// Globo de ayuda propio para cualquier `title`: aparece al instante sobre botones y campos,
+/// también donde el navegador no muestra el `title` nativo.
+#[component]
+pub fn HoverTip() -> impl IntoView {
+    let tip: RwSignal<Option<(f64, f64, String)>> = RwSignal::new(None);
+    let restore = move || {
+        HOVER.with(|h| {
+            if let Some(el) = h.borrow_mut().take() {
+                if let Some(t) = el.get_attribute("data-tip") {
+                    let _ = el.set_attribute("title", &t);
+                }
+            }
+        });
+        tip.set(None);
+    };
+    let over = move |ev: &web_sys::Event| {
+        let Some(el) = ev.target().and_then(|t| t.dyn_into::<Element>().ok()).and_then(|e| e.closest("[title]").ok().flatten()) else { return };
+        let same = HOVER.with(|h| h.borrow().as_ref() == Some(&el));
+        if same {
+            return;
+        }
+        restore();
+        let text = el.get_attribute("title").unwrap_or_default();
+        if text.trim().is_empty() {
+            return;
+        }
+        let _ = el.set_attribute("data-tip", &text);
+        let _ = el.remove_attribute("title");
+        let r = el.get_bounding_client_rect();
+        let w = web_sys::window().unwrap().inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1200.0);
+        tip.set(Some(((r.left() + r.width() / 2.0).clamp(130.0, w - 130.0), r.bottom() + 6.0, text)));
+        HOVER.with(|h| *h.borrow_mut() = Some(el));
+    };
+    let out = move |ev: &web_sys::Event| {
+        let e: &web_sys::MouseEvent = ev.unchecked_ref();
+        let to = e.related_target().and_then(|t| t.dyn_into::<Element>().ok());
+        let inside = HOVER.with(|h| h.borrow().as_ref().is_some_and(|el| to.as_ref().is_some_and(|t| el.contains(Some(t.unchecked_ref())))));
+        if !inside {
+            restore();
+        }
+    };
+    let doc = document();
+    let opts = gloo_events::EventListenerOptions::run_in_capture_phase();
+    gloo_events::EventListener::new_with_options(&doc, "mouseover", opts, over).forget();
+    gloo_events::EventListener::new_with_options(&doc, "mouseout", opts, out).forget();
+    gloo_events::EventListener::new_with_options(&doc, "mousedown", opts, move |_| restore()).forget();
+    move || tip.get().map(|(x, y, t)| view! { <div class="htip" style=format!("left:{x}px;top:{y}px")>{t}</div> })
 }

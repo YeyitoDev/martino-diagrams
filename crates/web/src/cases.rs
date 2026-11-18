@@ -34,7 +34,7 @@ fn cause(r: &Value) -> String {
 }
 
 /// Ids nuevos `cN` que no choquen con los que ya hay.
-fn renumber(existing: &[Case], mut new: Vec<Case>) -> Vec<Case> {
+pub fn renumber(existing: &[Case], mut new: Vec<Case>) -> Vec<Case> {
     let mut n = existing.iter().filter_map(|c| c.id.strip_prefix('c')?.parse::<usize>().ok()).max().unwrap_or(0);
     for c in &mut new {
         n += 1;

@@ -83,14 +83,14 @@ fn NodeInspector(id: String) -> impl IntoView {
         "condition" => view! { <ConditionEditor id=id.clone() /> }.into_any(),
         "extract" => view! {
             <h4>"Guardar en variables"</h4>
-            <p class="muted">"Cada fila guarda un valor en una variable del flujo. Vale una ruta sin llaves: "<span class="mono">"servicio.response.id"</span></p>
+            <crate::ui::Info><p>"Cada fila guarda un valor en una variable del flujo. Vale una ruta sin llaves: "<span class="mono">"servicio.response.id"</span></p></crate::ui::Info>
             {pairs_of(id.clone(), |n| n.vars.clone(), |n, v| n.vars = v, "variable", "servicio.response.id")}
         }.into_any(),
         "input" | "data" => {
             let i = id.clone();
             view! {
                 <h4>{if kind == "input" { "Campos de la entrada (JSON)" } else { "Datos fijos (JSON)" }}</h4>
-                {(kind == "input").then(|| view! { <p class="muted">"Es global: cualquier nodo lee "<span class="mono">{format!("{{{{{}.campo}}}}", n0.key)}</span>" sin conectarse."</p> })}
+                {(kind == "input").then(|| view! { <crate::ui::Info><p>"Es global: cualquier nodo lee "<span class="mono">{format!("{{{{{}.campo}}}}", n0.key)}</span>" sin conectarse."</p></crate::ui::Info> })}
                 <JsonField value=n0.data.clone() rows=10 on_change=Callback::new(move |v: Value| ed.edit_node(&i, move |n| n.data = v)) />
             }.into_any()
         }
@@ -98,7 +98,7 @@ fn NodeInspector(id: String) -> impl IntoView {
             let i = id.clone();
             view! {
                 <h4>"Código JavaScript"</h4>
-                <p class="muted">"Recibe "<span class="mono">"nodes"</span>", "<span class="mono">"input"</span>" y "<span class="mono">"env"</span>"; devuelve "<span class="mono">"{ status, body }"</span>". Ayudantes: "<span class="mono">"jwt(token)"</span>", "<span class="mono">"paginate(lista, página, tamaño)"</span>". Límite: 1 s."</p>
+                <crate::ui::Info><p>"Recibe "<span class="mono">"nodes"</span>", "<span class="mono">"input"</span>" y "<span class="mono">"env"</span>"; devuelve "<span class="mono">"{ status, body }"</span>". Ayudantes: "<span class="mono">"jwt(token)"</span>", "<span class="mono">"paginate(lista, página, tamaño)"</span>". Límite: 1 s."</p></crate::ui::Info>
                 <textarea class="in" rows="14" spellcheck="false" prop:value=n0.code.clone()
                     on:input=move |e| { let v = event_target_value(&e); ed.edit_node(&i, move |n| n.code = v) }></textarea>
             }.into_any()
@@ -123,7 +123,7 @@ fn NodeInspector(id: String) -> impl IntoView {
             }.into_any()
         }
         "start" => view! { <p class="muted">"El flujo empieza aquí. Conecta su salida al primer paso."</p> }.into_any(),
-        "end" => view! { <p class="muted">"Une las ramas que llegan y da el flujo por terminado aunque no haya Respuesta."</p> }.into_any(),
+        "end" => view! { <crate::ui::Info><p>"Une las ramas que llegan y da el flujo por terminado aunque no haya Respuesta."</p></crate::ui::Info> }.into_any(),
         _ => view! { <p class="muted">"Sin opciones."</p> }.into_any(),
     };
     let id_c = id.clone();
@@ -136,10 +136,15 @@ fn NodeInspector(id: String) -> impl IntoView {
                 <span class="grow"></span>
                 <button class="btn ghost sm danger" title="Borrar nodo (Supr)" on:click=move |_| ed.delete_selected()>"🗑"</button>
             </div>
-            <label class="f">"Clave (referencia en plantillas)"{node_text(id.clone(), |n| n.key.clone(), |n, v| n.key = v, "servicio")}</label>
-            <label class="f">"Nombre"{node_text(id.clone(), |n| n.name.clone(), |n, v| n.name = v, "Nombre visible")}</label>
-            <label class="f">"Descripción"{node_text(id.clone(), |n| n.desc.clone(), |n, v| n.desc = v, "Opcional")}</label>
-            <div class="row">
+            <div class="insp-2">
+                <label class="f">"Nombre"{node_text(id.clone(), |n| n.name.clone(), |n, v| n.name = v, "Nombre visible")}</label>
+                <label class="f" title="Con esta clave lo leen otros nodos: {{clave.campo}}">"Clave"{node_text(id.clone(), |n| n.key.clone(), |n, v| n.key = v, "servicio")}</label>
+            </div>
+            <details class="insp-more" open=node.with_untracked(|n| n.as_ref().is_some_and(|n| !n.desc.is_empty()))>
+                <summary>"Descripción"</summary>
+                {node_text(id.clone(), |n| n.desc.clone(), |n, v| n.desc = v, "Para qué sirve este paso (opcional)")}
+            </details>
+            <div class="row swatches" title="Color del nodo en el lienzo">
                 {COLORS.into_iter().map(|c| {
                     let i = id_c.clone();
                     view! { <span class="swatch" class:on=move || node.with(|n| n.as_ref().is_some_and(|n| n.color == c)) title=if c.is_empty() { "Sin color" } else { c }
@@ -178,7 +183,7 @@ fn NodeResult(id: String) -> impl IntoView {
                 <span class=if st["ok"] == Value::Bool(true) { "chip ok" } else { "chip err" }>{if st["ok"] == Value::Bool(true) { "OK" } else { "Error" }}</span>
                 {out["status"].as_u64().map(|s| view! { <span class=crate::ui::status_class(Some(s))>{s}</span> })}
                 <span class="muted">{format!("{} ms", st["ms"])}</span>
-                {st["port"].as_str().map(|p| view! { <span class="chip">{format!("sale por «{p}»")}</span> })}
+                {st["port"].as_str().map(|p| view! { <span class="chip" title="Por qué salida siguió el flujo">{match p { "out" => "siguió por la salida normal".into(), "error" => "siguió por la salida de error".into(), "true" => "salió por «sí»".into(), "false" => "salió por «no»".into(), p => format!("siguió por «{p}»") }}</span> })}
             </div>
             {st["error"].as_str().map(|e| view! { <pre class="code err-text">{e.to_string()}</pre> })}
             {st["sent"]["url"].as_str().map(|u| view! { <div class="mono muted" style="word-break:break-all">{format!("{} {u}", st["sent"]["method"].as_str().unwrap_or(""))}</div> })}
@@ -194,7 +199,7 @@ fn NodeResult(id: String) -> impl IntoView {
     }
 }
 
-/// Peticiones de la colección del flujo (para elegir el .bru de un Servicio o el global).
+/// Peticiones de la colección del flujo (para elegir la petición de un Servicio o el global).
 fn col_paths(ed: Ed) -> Vec<(String, String)> {
     let a = app();
     let col = ed.flow.with(|f| f.collection.clone());
@@ -211,7 +216,7 @@ fn RequestEditor(id: String) -> impl IntoView {
     let tabs: [(&str, &str); 5] = [("vars", "Vars"), ("query", "Query"), ("headers", "Headers"), ("body", "Body"), ("save", "Guardar")];
     let id_b = id.clone();
     view! {
-        <h4>"Petición (.bru)"</h4>
+        <h4>"Petición"</h4>
         <div class="row">
             <select class="in grow" prop:value=move || ed.flow.with(|f| f.node(&id2).map(|n| n.req_ref.clone()).unwrap_or_default())
                 on:change=move |e| { let v = event_target_value(&e); ed.edit_node(&id_r, move |n| n.req_ref = v) }>
@@ -220,20 +225,93 @@ fn RequestEditor(id: String) -> impl IntoView {
             </select>
             <button class="btn primary" title="Enviar sólo este servicio con los datos de la última ejecución" on:click=move |_| { ed.run_node(id_b.clone()) }>"Enviar"</button>
         </div>
-        <p class="muted">"Puedes arrastrar una petición de la barra lateral al lienzo. Usa "<span class="mono">"{{entrada.campo}}"</span>" o "<span class="mono">"{{otro_nodo.response.x}}"</span>" en los valores."</p>
+        <crate::ui::Info><p>"Puedes arrastrar una petición de la barra lateral al lienzo. Usa "<span class="mono">"{{entrada.campo}}"</span>" o "<span class="mono">"{{otro_nodo.response.x}}"</span>" en los valores."</p></crate::ui::Info>
         <div class="tabs">
             {tabs.into_iter().map(|(k, l)| view! { <button class:on=move || tab.get() == k on:click=move |_| tab.set(k)>{l}</button> }).collect_view()}
         </div>
         {move || {
             let id = id.clone();
             match tab.get() {
-                "vars" => view! { <p class="muted">"Variables de la petición antes de enviarla (ganan sobre el entorno)."</p>{pairs_of(id, |n| n.vars.clone(), |n, v| n.vars = v, "variable", "{{entrada.userId}}")} }.into_any(),
+                "vars" => view! { <crate::ui::Info><p>"Variables de la petición antes de enviarla (ganan sobre el entorno)."</p></crate::ui::Info>{pairs_of(id, |n| n.vars.clone(), |n, v| n.vars = v, "variable", "{{entrada.userId}}")} }.into_any(),
                 "query" => pairs_of(id, |n| n.query_overrides.clone(), |n, v| n.query_overrides = v, "parámetro", "valor").into_any(),
                 "headers" => pairs_of(id, |n| n.header_overrides.clone(), |n, v| n.header_overrides = v, "header", "valor").into_any(),
                 "body" => view! { <p class="muted">"Campos del body JSON a reemplazar (ruta → valor)."</p>{pairs_of(id, |n| n.body_overrides.clone(), |n, v| n.body_overrides = v, "cliente.id", "{{entrada.id}}")} }.into_any(),
-                _ => view! { <p class="muted">"Guarda valores de la respuesta en variables del flujo: "<span class="mono">"response.x"</span>", "<span class="mono">"status"</span>", "<span class="mono">"headers.x"</span></p>{pairs_of(id, |n| n.save_vars.clone(), |n, v| n.save_vars = v, "variable", "response.id")} }.into_any(),
+                _ => view! { <crate::ui::Info><p>"Guarda valores de la respuesta en variables del flujo: "<span class="mono">"response.x"</span>", "<span class="mono">"status"</span>", "<span class="mono">"headers.x"</span></p></crate::ui::Info>{pairs_of(id, |n| n.save_vars.clone(), |n, v| n.save_vars = v, "variable", "response.id")} }.into_any(),
             }
         }}
+    }
+}
+
+/// La comparación en palabras completas, con su código corto: «No es igual a (NEQ)».
+pub fn op_label(op: &str) -> String {
+    let (w, c) = match op {
+        "eq" => ("Es igual a", "EQ"),
+        "neq" => ("No es igual a", "NEQ"),
+        "gt" => ("Mayor que", "GT"),
+        "gte" => ("Mayor o igual que", "GTE"),
+        "lt" => ("Menor que", "LT"),
+        "lte" => ("Menor o igual que", "LTE"),
+        "contains" => ("Contiene", "CONTAINS"),
+        "notContains" => ("No contiene", "NOT CONTAINS"),
+        "startsWith" => ("Empieza con", "STARTS WITH"),
+        "endsWith" => ("Termina con", "ENDS WITH"),
+        "in" => ("Está en la lista", "IN"),
+        "notIn" => ("No está en la lista", "NOT IN"),
+        "isDefined" => ("Existe", "DEFINED"),
+        "isUndefined" => ("No existe", "UNDEFINED"),
+        "isNull" => ("Es nulo", "NULL"),
+        "isNotNull" => ("No es nulo", "NOT NULL"),
+        "isEmpty" => ("Está vacío", "EMPTY"),
+        "isNotEmpty" => ("No está vacío", "NOT EMPTY"),
+        "isTruthy" => ("Es verdadero", "TRUE"),
+        "isFalsy" => ("Es falso", "FALSE"),
+        "isNumber" => ("Es un número", "NUMBER"),
+        "isString" => ("Es un texto", "STRING"),
+        _ => return op.to_string(),
+    };
+    format!("{w} ({c})")
+}
+
+/// Con la última ejecución: el valor actual del campo (texto) y si la regla se cumple.
+pub fn rule_eval(r: &Rule) -> Option<(String, bool)> {
+    if r.left.trim().is_empty() {
+        return None;
+    }
+    app().flow_ctx.with(|f| {
+        let (flow, outs) = f.as_ref()?;
+        if outs.is_empty() {
+            return None;
+        }
+        let vars = serde_json::Map::new();
+        let ctx = martino_core::flow::RefCtx { flow, outs, vars: &vars };
+        // Ruta sin llaves (lo normal) o plantilla con `{{…}}`.
+        let actual = if r.left.contains("{{") { Some(ctx.value(&r.left, &|_| None, false)) } else { ctx.lookup(r.left.trim()) };
+        let ok = martino_core::flow::check(actual.as_ref(), &r.op, &ctx.render(&r.right, &|_| None));
+        Some((actual.map(|v| martino_core::interp::value_to_text(&v)).unwrap_or_else(|| "(no existe)".into()), ok))
+    })
+}
+
+fn rule_preview(r: &Rule) -> Option<impl IntoView> {
+    rule_eval(r).map(|(shown, ok)| {
+        view! {
+            <div class="rule-prev" class:ok=ok title="Según la última ejecución">
+                <span>"vale "</span><b class="mono">{shown}</b>
+                <span class="grow"></span><span>{if ok { "✓ se cumple" } else { "✗ no se cumple" }}</span>
+            </div>
+        }
+    })
+}
+
+/// Símbolo corto para el lienzo: `≤`, `≠`… o la palabra completa si no hay símbolo.
+pub fn op_short(op: &str) -> String {
+    match op {
+        "eq" => "=".into(),
+        "neq" => "≠".into(),
+        "gt" => ">".into(),
+        "gte" => "≥".into(),
+        "lt" => "<".into(),
+        "lte" => "≤".into(),
+        o => op_label(o).split(" (").next().unwrap_or(o).to_lowercase(),
     }
 }
 
@@ -251,24 +329,29 @@ fn ConditionEditor(id: String) -> impl IntoView {
     view! {
         <h4>"Reglas"</h4>
         <div class="row">
-            <span class="muted">"Sale por «sí» si se cumplen"</span>
-            <select class="in" prop:value=move || ed.flow.with(|f| f.node(&id_mode).map(|n| n.mode.clone()).unwrap_or_default())
-                on:change=move |e| { let v = event_target_value(&e); ed.edit_node(&id_mode2, move |n| n.mode = v) }>
-                <option value="all">"todas"</option>
-                <option value="any">"alguna"</option>
-            </select>
+            <span class="muted">"Sale por «sí» cuando"</span>
+            <span class="seg">
+                {[("all", "se cumplen todas (Y)"), ("any", "se cumple alguna (O)")].into_iter().map(|(m, l)| {
+                    let (a, b) = (id_mode.clone(), id_mode2.clone());
+                    view! { <button class:on=move || ed.flow.with(|f| f.node(&a).map(|n| if n.mode == "any" { "any" } else { "all" } == m).unwrap_or(false))
+                        on:click=move |_| ed.edit_node(&b, move |n| n.mode = m.into())>{l}</button> }
+                }).collect_view()}
+            </span>
         </div>
-        <p class="muted">"A la izquierda, una ruta ("<span class="mono">"servicio.status"</span>", "<span class="mono">"entrada.tipo"</span>") o una plantilla."</p>
+        <crate::ui::Info><p>"Cada regla se lee como una frase: "<b>"si"</b>" el campo "<b>"cumple"</b>" la comparación con el valor. Escribe la ruta sin llaves ("<span class="mono">"entrada.tipo"</span>", "<span class="mono">"servicio.status"</span>"): al poner el punto se sugieren los campos. Tras ejecutar, cada regla muestra su valor y si se cumple."</p></crate::ui::Info>
         {move || (0..count.get()).map(|i| {
             let (a1, a2, a3, a4) = (id.clone(), id.clone(), id.clone(), id.clone());
             let (r1, r2, r3, r4) = (id.clone(), id.clone(), id.clone(), id.clone());
             view! {
                 <div class="rule">
-                    <VarField value=Signal::derive(move || rule(&r1, i).left) placeholder="servicio.status"
-                        on_input=Callback::new(move |v: String| set_rule(&a1, i, Box::new(move |r| r.left = v))) />
+                    <div class="rule-l"><span class="rule-w">{let r6 = id.clone(); move || if i == 0 { "Si".to_string() } else if ed.flow.with(|f| f.node(&r6).is_some_and(|n| n.mode == "any")) { "o si".into() } else { "y si".into() }}</span>
+                        <span class="grow"><VarField value=Signal::derive(move || rule(&r1, i).left) placeholder="servicio.status"
+                            on_input=Callback::new(move |v: String| set_rule(&a1, i, Box::new(move |r| r.left = v))) /></span>
+                    </div>
+                    {let r5 = id.clone(); move || rule_preview(&rule(&r5, i))}
                     <div class="row">
-                        <select class="in" prop:value=move || rule(&r2, i).op on:change=move |e| { let v = event_target_value(&e); set_rule(&a2, i, Box::new(move |r| r.op = v)) }>
-                            {OPS.into_iter().map(|o| view! { <option value=o>{o}</option> }).collect_view()}
+                        <select class="in" title="Comparación" prop:value=move || rule(&r2, i).op on:change=move |e| { let v = event_target_value(&e); set_rule(&a2, i, Box::new(move |r| r.op = v)) }>
+                            {OPS.into_iter().map(|o| view! { <option value=o>{op_label(o)}</option> }).collect_view()}
                         </select>
                         <span class="grow" style:display=move || if rule(&r3, i).op.starts_with("is") { "none" } else { "block" }>
                             <VarField value=Signal::derive(move || rule(&r4, i).right) placeholder="200"
@@ -279,7 +362,7 @@ fn ConditionEditor(id: String) -> impl IntoView {
                 </div>
             }
         }).collect_view()}
-        <button class="btn sm" on:click=move |_| ed.edit_node(&id_add, |n| n.rules.push(Rule { left: String::new(), op: "eq".into(), right: String::new() }))>"+ Regla"</button>
+        <button class="btn rule-add" on:click=move |_| ed.edit_node(&id_add, |n| n.rules.push(Rule { left: String::new(), op: "eq".into(), right: String::new() }))>"＋ Agregar otra regla"</button>
     }
 }
 
@@ -312,17 +395,17 @@ fn FlowInspector() -> impl IntoView {
         <section>
             <h4>"Flujo"</h4>
             <label class="f">"Nombre"<input class="in" data-noac prop:value=move || ed.flow.with(|f| f.name.clone()) on:input=move |e| { let v = event_target_value(&e); ed.edit(|f| f.name = v) } /></label>
-            <label class="f">"Colección (de dónde salen los .bru)"
+            <label class="f">"Colección (de dónde salen las peticiones)"
                 <select class="in" prop:value=move || ed.flow.with(|f| f.collection.clone()) on:change=move |e| { let v = event_target_value(&e); ed.edit(|f| f.collection = v) }>
                     <option value="">"—"</option>
                     {move || a.collections.get().into_iter().map(|c| { let on = c.id.clone(); view! { <option value=c.id.clone() selected=move || ed.flow.with(|f| f.collection == on)>{c.name}</option> } }).collect_view()}
                 </select>
             </label>
-            <p class="muted">"Selecciona un nodo para editarlo. Arrastra desde el punto de la derecha de un nodo hasta otro para conectarlos; Supr borra lo seleccionado; Ctrl+rueda hace zoom."</p>
+            <crate::ui::Info><p>"Selecciona un nodo para editarlo. Arrastra desde el punto de la derecha de un nodo hasta otro para conectarlos; Supr borra lo seleccionado; Ctrl+rueda hace zoom."</p></crate::ui::Info>
         </section>
         <section>
             <h4>"Comparación con el servicio global"</h4>
-            <label class="f">"Petición global (.bru)"
+            <label class="f">"Petición global"
                 <select class="in" prop:value=move || ed.flow.with(|f| f.global.as_ref().map(|g| g.req_ref.clone()).unwrap_or_default())
                     on:change=move |e| { let v = event_target_value(&e); ed.edit(|f| f.global = (!v.is_empty()).then_some(flow::Global { req_ref: v })) }>
                     <option value="">"— sin comparación —"</option>
