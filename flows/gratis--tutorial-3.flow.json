@@ -1,0 +1,154 @@
+{
+  "name": "Tutorial 3 · Traducir con una tabla",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "q0",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 30,
+      "y": 60,
+      "sid": "INI-01"
+    },
+    {
+      "id": "q1",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 30,
+      "y": 200,
+      "sid": "ENT-01",
+      "data": {
+        "codigo": "JP"
+      }
+    },
+    {
+      "id": "q2",
+      "type": "lookup",
+      "key": "pais",
+      "name": "Buscar el país",
+      "x": 50,
+      "y": 340,
+      "sid": "EQV-01",
+      "lookup": {
+        "table": "paises",
+        "value": "{{entrada.codigo}}",
+        "column": "codigo",
+        "onMiss": "default",
+        "default": "?"
+      }
+    },
+    {
+      "id": "q3",
+      "type": "condition",
+      "key": "existe",
+      "name": "¿Está en la tabla?",
+      "x": 290,
+      "y": 60,
+      "sid": "CND-01",
+      "mode": "all",
+      "rules": [
+        {
+          "left": "pais.pais",
+          "op": "neq",
+          "right": "?"
+        }
+      ]
+    },
+    {
+      "id": "q4",
+      "type": "response",
+      "key": "encontrado",
+      "name": "País encontrado",
+      "x": 1070,
+      "y": 60,
+      "sid": "RES-01",
+      "status": "200",
+      "body": {
+        "pais": "{{pais.pais}}",
+        "capital": "{{pais.capital}}",
+        "moneda": "{{tabla.paises[codigo=entrada.codigo].moneda}}"
+      }
+    },
+    {
+      "id": "q5",
+      "type": "response",
+      "key": "no_existe",
+      "name": "Código desconocido",
+      "x": 1070,
+      "y": 190,
+      "sid": "RES-02",
+      "status": "404",
+      "body": {
+        "error": "No conozco el código {{entrada.codigo}}"
+      }
+    },
+    {
+      "id": "q6",
+      "type": "note",
+      "key": "nota",
+      "name": "Nota",
+      "x": 30,
+      "y": 470,
+      "sid": "NOT-01",
+      "text": "«Buscar el país» traduce JP → Japón con la tabla paises. «moneda» usa la sintaxis {{tabla.paises[codigo=entrada.codigo].moneda}}: lo mismo, sin paso. Prueba el escenario «Código inventado»."
+    }
+  ],
+  "edges": [
+    {
+      "from": "q0",
+      "port": "out",
+      "to": "q2"
+    },
+    {
+      "from": "q2",
+      "port": "out",
+      "to": "q3"
+    },
+    {
+      "from": "q3",
+      "port": "true",
+      "to": "q4"
+    },
+    {
+      "from": "q3",
+      "port": "false",
+      "to": "q5"
+    }
+  ],
+  "cases": [
+    {
+      "id": "TU3-001",
+      "name": "Japón",
+      "input": {
+        "codigo": "JP"
+      },
+      "expectStatus": 200,
+      "note": "",
+      "expect": [
+        {
+          "left": "capital",
+          "op": "eq",
+          "right": "Tokio"
+        },
+        {
+          "left": "moneda",
+          "op": "eq",
+          "right": "JPY"
+        }
+      ]
+    },
+    {
+      "id": "TU3-002",
+      "name": "Código inventado",
+      "input": {
+        "codigo": "XX"
+      },
+      "expectStatus": 404,
+      "note": "",
+      "expect": []
+    }
+  ],
+  "vars": []
+}

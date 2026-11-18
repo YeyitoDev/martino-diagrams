@@ -210,15 +210,23 @@ Para traducir códigos: `002 → BCP`, `PE → Perú`, `ACTIVO → A`.
 
 ## Flujos de ejemplo (servicios gratis, sin llaves)
 
-La colección `collections/gratis` trae 3 flujos listos para ejecutar con el entorno **publico**. Cada uno tiene sus casos QA:
+**Al abrir Martino por primera vez** aparece el **Inicio**: qué hace cada parte, una animación de un flujo ejecutándose y un **tutorial de 4 pasos** que abre los flujos «Tutorial 1–3». Vuelves a él con el gato de arriba a la izquierda.
+
+![Inicio: presentación con un flujo animado, las funciones y el tutorial en 4 pasos](docs/img/inicio.jpg)
+
+La colección `collections/gratis` trae 6 flujos listos para ejecutar con el entorno **publico**, de más fácil a más complejo. Cada uno tiene sus casos QA:
 
 | Flujo | Qué muestra | Servicios | Casos |
 |---|---|---|---|
+| **Tutorial 1 · Tu primera llamada** | Entrada → un servicio → respuesta; copiar rutas de la respuesta | Open-Meteo | 1 (Lima) |
+| **Tutorial 2 · Decidir con una condición** | Una regla `edad ≥ 18` y dos caminos; escenarios en la Entrada | ninguno (sin internet) | 2 |
+| **Tutorial 3 · Traducir con una tabla** | Paso Equivalencia (JP → Japón) y la sintaxis `{{tabla.paises[codigo=…].moneda}}` | ninguno | 2 (Japón, código inventado) |
 | **Viaje: clima y cambio por país** | Tabla `paises` → 2 servicios **en paralelo** → unión en JavaScript → condición | Open-Meteo, ExchangeRate-API | 3 (Perú, Japón, país que no existe) |
 | **Pago firmado y cifrado** | Tabla `bancos` → reglas → **JWS** → **JWE** → **HMAC** en header → envío → descifra y verifica el eco | httpbin | 3 (pago OK, banco inválido, monto alto) |
 | **Duelo pokémon** | 2 servicios en paralelo → unión → tabla `tipos` (inglés → español) → empate o ganador | PokéAPI | 4 (incluye 404 de un nombre inventado) |
 
 ```bash
+martino flow gratis--tutorial-1 --env publico --cases
 martino flow gratis--viaje --env publico --cases
 martino flow gratis--pago-cifrado --env publico --cases
 martino flow gratis--duelo-pokemon --env publico --cases

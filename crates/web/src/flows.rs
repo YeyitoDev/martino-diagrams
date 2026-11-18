@@ -487,13 +487,19 @@ impl Ed {
     }
 
     /// Encuadra todos los nodos en el lienzo.
+    /// Encuadra todos los nodos: los mueve a la vista y, si no entran, aleja el zoom (hasta 40 %).
     pub fn fit(&self) {
-        let (min_x, min_y) = self.flow.with_untracked(|f| f.nodes.iter().fold((f64::MAX, f64::MAX), |(x, y), n| (x.min(n.x), y.min(n.y))));
+        let (min_x, min_y, max_x, max_y) = self.flow.with_untracked(|f| f.nodes.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |(a, b, c, d), n| {
+            (a.min(n.x), b.min(n.y), c.max(n.x + node_w(n)), d.max(n.y + H + 60.0))
+        }));
         if min_x == f64::MAX {
             self.view.set((40.0, 40.0, 1.0));
-        } else {
-            self.view.set((290.0 - min_x, 50.0 - min_y, 1.0)); // deja libre el panel de Entrada
+            return;
         }
+        // Deja libre a la izquierda el panel de Entrada (≈ 270 px) y un margen abajo.
+        let (cw, ch) = document().query_selector(".fcanvas").ok().flatten().map(|e| (e.client_width() as f64, e.client_height() as f64)).filter(|(w, h)| *w > 400.0 && *h > 200.0).unwrap_or((1200.0, 700.0));
+        let z = ((cw - 310.0) / (max_x - min_x)).min((ch - 90.0) / (max_y - min_y)).clamp(0.4, 1.0);
+        self.view.set((290.0 - min_x * z, 50.0 - min_y * z, z));
     }
 }
 

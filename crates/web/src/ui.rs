@@ -663,14 +663,17 @@ pub fn Info(children: Children) -> impl IntoView {
 thread_local! {
     /// Elemento con globo de ayuda visible (su `title` se quita mientras tanto para no duplicarlo).
     static HOVER: RefCell<Option<Element>> = const { RefCell::new(None) };
+    /// Sube con cada elemento nuevo bajo el cursor: el globo pendiente de otro ya no se muestra.
+    static HOVER_SEQ: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
-/// Globo de ayuda propio para cualquier `title`: aparece al instante sobre botones y campos,
-/// también donde el navegador no muestra el `title` nativo.
+/// Globo de ayuda propio para cualquier `title`: aparece tras 2 s con el cursor encima (no estorba
+/// al pasar de largo), también donde el navegador no muestra el `title` nativo.
 #[component]
 pub fn HoverTip() -> impl IntoView {
     let tip: RwSignal<Option<(f64, f64, String)>> = RwSignal::new(None);
     let restore = move || {
+        HOVER_SEQ.with(|s| s.set(s.get() + 1));
         HOVER.with(|h| {
             if let Some(el) = h.borrow_mut().take() {
                 if let Some(t) = el.get_attribute("data-tip") {
@@ -693,10 +696,16 @@ pub fn HoverTip() -> impl IntoView {
         }
         let _ = el.set_attribute("data-tip", &text);
         let _ = el.remove_attribute("title");
-        let r = el.get_bounding_client_rect();
-        let w = web_sys::window().unwrap().inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1200.0);
-        tip.set(Some(((r.left() + r.width() / 2.0).clamp(130.0, w - 130.0), r.bottom() + 6.0, text)));
-        HOVER.with(|h| *h.borrow_mut() = Some(el));
+        let seq = HOVER_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
+        HOVER.with(|h| *h.borrow_mut() = Some(el.clone()));
+        set_timeout(move || {
+            if HOVER_SEQ.with(|s| s.get()) != seq || !HOVER.with(|h| h.borrow().as_ref() == Some(&el)) {
+                return;
+            }
+            let r = el.get_bounding_client_rect();
+            let w = web_sys::window().unwrap().inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1200.0);
+            tip.set(Some(((r.left() + r.width() / 2.0).clamp(130.0, w - 130.0), r.bottom() + 6.0, text)));
+        }, std::time::Duration::from_millis(2000));
     };
     let out = move |ev: &web_sys::Event| {
         let e: &web_sys::MouseEvent = ev.unchecked_ref();

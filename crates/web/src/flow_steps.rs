@@ -440,7 +440,9 @@ pub fn LookupEditor(id: String) -> impl IntoView {
             {move || t.get().map(|tb| {
                 let name = spec.get().table;
                 let (c0, c1) = (tb.cols.first().cloned().unwrap_or_default(), tb.cols.get(1).cloned().unwrap_or_default());
-                let a = format!("{{{{tabla.{name}[{}].{c1}}}}}", spec.get().value.trim().trim_start_matches("{{").trim_end_matches("}}"));
+                let v = spec.get().value.trim().trim_start_matches("{{").trim_end_matches("}}").to_string();
+                let col = spec.get().column;
+                let a = if col.is_empty() || col == c0 { format!("{{{{tabla.{name}[{v}].{c1}}}}}") } else { format!("{{{{tabla.{name}[{col}={v}].{c0}}}}}") };
                 let b = format!("{{{{tabla.{name}[{c1}=…].{c0}}}}}");
                 let (a2, b2) = (a.clone(), b.clone());
                 view! {
