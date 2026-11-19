@@ -1,4 +1,4 @@
-//! Paneles fijos del editor de flujos: «＋ Añadir paso» y el buscador «/» (barra de arriba), la columna
+//! Paneles fijos del editor de flujos: «＋ Añadir paso» y el buscador «/» (barra de arriba), la paleta
 //! de servicios, el buscador del lienzo y la Entrada.
 use crate::flows::{ed, label};
 use crate::state::{app, TreeItem};
@@ -108,12 +108,14 @@ pub fn AddStep() -> impl IntoView {
         let t = fold(q.get().trim());
         kinds().filter(|(_, k)| t.is_empty() || fold(&format!("{} {} {}", label(k), words(k), hint(k))).contains(&t)).map(|x| x.1).collect::<Vec<_>>()
     };
-    // «/» fuera de un campo enfoca el buscador de pasos.
+    // Fuera de un campo: «/» enfoca el buscador de pasos y «S» abre la paleta de servicios.
     let keys = window_event_listener(leptos::ev::keydown, move |e: web_sys::KeyboardEvent| {
         let in_field = e.target().and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(t).ok()).is_some_and(|el| matches!(el.tag_name().as_str(), "INPUT" | "TEXTAREA" | "SELECT"));
-        if e.key() == "/" && !in_field && app().modal.get_untracked().is_none() {
-            e.prevent_default();
-            if let Some(i) = input.get_untracked() { let _ = i.focus(); }
+        if in_field || e.ctrl_key() || e.meta_key() || e.alt_key() || app().modal.get_untracked().is_some() { return; }
+        match e.key().as_str() {
+            "/" => { e.prevent_default(); if let Some(i) = input.get_untracked() { let _ = i.focus(); } }
+            "s" | "S" => { e.prevent_default(); ed.svc.set(true) }
+            _ => {}
         }
     });
     on_cleanup(move || keys.remove());
@@ -202,18 +204,23 @@ fn requests(items: &[TreeItem], out: &mut Vec<(String, String, String, String)>)
     }
 }
 
-/// Columna de selección rápida: los servicios de la colección del flujo; clic o arrastrar añade el paso.
+/// Paleta flotante de servicios sobre el lienzo (botón «Servicios» o tecla S): busca en la colección del
+/// flujo; clic, Enter o arrastrar añade el paso.
 #[component]
-pub fn ServiceColumn() -> impl IntoView {
+pub fn ServicePalette() -> impl IntoView {
     let (a, ed) = (app(), ed());
     let q = RwSignal::new(String::new());
+    let sel = RwSignal::new(0usize);
+    let drag = RwSignal::new(false);
+    let input = NodeRef::<leptos::html::Input>::new();
     let col = move || { let c = ed.flow.with(|f| f.collection.clone()); if c.is_empty() { a.collection.get() } else { c } };
     let list = move || {
         let mut out = vec![];
         a.collections.with(|cs| if let Some(c) = cs.iter().find(|c| c.id == col()) { requests(&c.items, &mut out) });
         let t = fold(q.get().trim());
-        out.into_iter().filter(|r| t.is_empty() || fold(&format!("{} {} {}", r.1, r.3, r.0)).contains(&t)).collect::<Vec<_>>()
+        out.into_iter().filter(|r| t.is_empty() || fold(&format!("{} {} {} {}", r.1, r.3, r.2, r.0)).contains(&t)).collect::<Vec<_>>()
     };
+    let close = move || { ed.svc.set(false); q.set(String::new()); sel.set(0); drag.set(false) };
     let add = move |path: String, name: String| {
         let mut n = ed.place("request");
         n.name = name;
@@ -222,31 +229,53 @@ pub fn ServiceColumn() -> impl IntoView {
         let (id, c) = (n.id.clone(), col());
         ed.edit(|f| { if f.collection.is_empty() { f.collection = c; } f.nodes.push(n) });
         ed.sel.set(Some(id));
+        close();
+    };
+    Effect::new(move |_| if let Some(i) = input.get() { let _ = i.focus(); });
+    let key = move |e: web_sys::KeyboardEvent| {
+        let l = list();
+        let n = l.len().max(1);
+        match e.key().as_str() {
+            "ArrowDown" => { e.prevent_default(); sel.update(|s| *s = (*s + 1) % n) }
+            "ArrowUp" => { e.prevent_default(); sel.update(|s| *s = (*s + n - 1) % n) }
+            "Enter" => if let Some((p, name, ..)) = l.into_iter().nth(sel.get_untracked()) { add(p, name) },
+            "Escape" => close(),
+            _ => {}
+        }
     };
     view! {
-        <aside class="fsvc">
-            <div class="fsvc-h"><span class="kshape k-request"></span>"Servicios"<span class="grow"></span>
-                <button class="btn ghost sm" title="Ocultar columna" on:click=move |_| ed.svc.set(false)>"✕"</button></div>
-            <input class="in" data-noac placeholder="Filtrar por nombre o ID…" prop:value=move || q.get() on:input=move |e| q.set(event_target_value(&e)) />
-            <div class="fsvc-list">
+        <div class="svc-back" class:drag=move || drag.get() on:pointerdown=move |_| close()></div>
+        <div class="svc-pal" class:drag=move || drag.get() on:pointerdown=|e| e.stop_propagation() on:wheel=|e| e.stop_propagation()>
+            <input node_ref=input class="svc-q" data-noac placeholder="Busca un servicio: método, nombre o ID…" prop:value=move || q.get()
+                on:input=move |e| { q.set(event_target_value(&e)); sel.set(0) } on:keydown=key />
+            <div class="svc-list">
                 {move || {
                     let l = list();
-                    if l.is_empty() { return view! { <p class="muted">"No hay peticiones en esta colección. Créalas en Peticiones."</p> }.into_any(); }
-                    l.into_iter().map(|(path, name, method, id)| {
+                    if l.is_empty() {
+                        let msg = if q.with(|q| q.trim().is_empty()) { "No hay peticiones en esta colección. Créalas en Peticiones." } else { "Ningún servicio coincide. Prueba con el ID o el método." };
+                        return view! { <p class="muted svc-none">{msg}</p> }.into_any();
+                    }
+                    l.into_iter().enumerate().map(|(i, (path, name, method, id))| {
                         let (p2, n2, c) = (path.clone(), name.clone(), col());
                         view! {
-                            <button class="fsvc-i" draggable="true" title=format!("{path} · clic o arrástralo al lienzo") on:click=move |_| add(p2.clone(), n2.clone())
-                                on:dragstart=move |e: web_sys::DragEvent| { if let Some(d) = e.data_transfer() {
-                                    let _ = d.set_data(crate::requests::DND_REQ, &serde_json::json!({"collection": c, "path": path}).to_string()); } }>
+                            <button class="svc-i" class:on=move || sel.get() == i draggable="true" title=format!("{path} · clic o arrástralo al lienzo")
+                                on:mouseenter=move |_| sel.set(i) on:click=move |_| add(p2.clone(), n2.clone())
+                                on:dragstart=move |e: web_sys::DragEvent| {
+                                    // Se esconde después del dragstart; si no, el navegador toma la imagen ya invisible.
+                                    set_timeout(move || drag.set(true), std::time::Duration::ZERO);
+                                    if let Some(d) = e.data_transfer() {
+                                    let _ = d.set_data(crate::requests::DND_REQ, &serde_json::json!({"collection": c, "path": path}).to_string()); } }
+                                on:dragend=move |_| close()>
                                 <span class=format!("m m-{}", method.to_lowercase())>{method.to_uppercase()}</span>
+                                <span class="svc-n">{name}</span>
                                 {(!id.is_empty()).then(|| view! { <span class="req-id">{id}</span> })}
-                                <span class="fsvc-n">{name}</span>
                             </button>
                         }
                     }).collect_view().into_any()
                 }}
             </div>
-        </aside>
+            <div class="svc-f"><span><kbd>"↑↓"</kbd>" moverte"</span><span><kbd>"Enter"</kbd>" agregar"</span><span><kbd>"Esc"</kbd>" cerrar"</span><span>"o arrástralo al lienzo"</span></div>
+        </div>
     }
 }
 

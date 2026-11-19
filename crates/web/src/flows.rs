@@ -214,7 +214,7 @@ impl Ed {
             tables_of: RwSignal::new(String::new()),
             resp: RwSignal::new("usado"),
             insp: RwSignal::new(true),
-            svc: RwSignal::new(true),
+            svc: RwSignal::new(false),
             find: RwSignal::new(String::new()),
             last_step: RwSignal::new(None),
             undo: StoredValue::new(vec![]),
@@ -616,7 +616,7 @@ pub fn FlowsView() -> impl IntoView {
                     Pane::Qa => view! { <crate::cases::CasesView /> }.into_any(),
                     Pane::Tables => view! { <crate::tables::TablesView /> }.into_any(),
                     Pane::Story => view! { <div class="fbody"><crate::flow_story::StoryView />{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
-                    Pane::Canvas => view! { <div class="fbody">{move || ed.svc.get().then(|| view! { <crate::flow_panels::ServiceColumn /> })}<Canvas />{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
+                    Pane::Canvas => view! { <div class="fbody"><Canvas />{move || ed.svc.get().then(|| view! { <crate::flow_panels::ServicePalette /> })}{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
                 }
             }}
         </div>
@@ -645,7 +645,7 @@ fn Toolbar() -> impl IntoView {
                 <button class:on=move || ed.pane.get() != Pane::Story on:click=move |_| ed.pane.set(Pane::Canvas)>"Lienzo"</button>
                 <button class:on=move || ed.pane.get() == Pane::Story on:click=move |_| ed.pane.set(Pane::Story)>"Historia"</button>
             </div>
-            <button class="btn ghost sm" class:on=move || ed.svc.get() title="Columna de servicios de la colección: clic o arrastra para añadir" on:click=move |_| ed.svc.update(|v| *v = !*v)>"▤ Servicios"</button>
+            <button class="btn ghost sm" class:on=move || ed.svc.get() title="Buscar un servicio de la colección y añadirlo (tecla S)" on:click=move |_| ed.svc.update(|v| *v = !*v)>"▤ Servicios "<kbd>"S"</kbd></button>
             <crate::flow_panels::AddStep />
             <div class="tgroup" title="Editar">
                 <button class="btn ghost sm" title="Deshacer (Ctrl+Z)" on:click=move |_| ed.travel(true)>"↶"</button>
