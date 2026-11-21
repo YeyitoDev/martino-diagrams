@@ -1,0 +1,124 @@
+{
+  "name": "Tutorial 1 · Tu primera llamada",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "t0",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 30,
+      "y": 60,
+      "sid": "INI-01"
+    },
+    {
+      "id": "t1",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 30,
+      "y": 200,
+      "sid": "ENT-01",
+      "data": {
+        "lat": -12.05,
+        "lng": -77.04
+      }
+    },
+    {
+      "id": "t2",
+      "type": "request",
+      "key": "clima",
+      "name": "Clima de Lima",
+      "x": 810,
+      "y": 60,
+      "sid": "SRV-01",
+      "ref": "Clima/Clima-actual.bru",
+      "vars": [
+        {
+          "name": "lat",
+          "value": "{{entrada.lat}}",
+          "enabled": true
+        },
+        {
+          "name": "lng",
+          "value": "{{entrada.lng}}",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "type": "response",
+      "key": "resultado",
+      "name": "Temperatura",
+      "x": 1070,
+      "y": 60,
+      "sid": "RES-01",
+      "status": "200",
+      "body": {
+        "temperatura": "{{clima.response.current.temperature_2m}}",
+        "humedad": "{{clima.response.current.relative_humidity_2m}}"
+      }
+    },
+    {
+      "id": "t4",
+      "type": "response",
+      "key": "sin_servicio",
+      "name": "El servicio no respondió",
+      "x": 1070,
+      "y": 190,
+      "sid": "RES-02",
+      "status": "502",
+      "body": {
+        "error": "Open-Meteo no respondió"
+      }
+    },
+    {
+      "id": "t5",
+      "type": "note",
+      "key": "nota",
+      "name": "Nota",
+      "x": 30,
+      "y": 330,
+      "sid": "NOT-01",
+      "text": "1) Mira la Entrada: latitud y longitud de Lima. 2) Dale ▶ Ejecutar. 3) Clic en un campo bajo «Clima de Lima» copia su ruta. Cambia lat/lng en la Entrada y vuelve a ejecutar."
+    }
+  ],
+  "edges": [
+    {
+      "from": "t0",
+      "port": "out",
+      "to": "t2"
+    },
+    {
+      "from": "t2",
+      "port": "out",
+      "to": "t3"
+    },
+    {
+      "from": "t2",
+      "port": "error",
+      "to": "t4"
+    }
+  ],
+  "cases": [
+    {
+      "id": "TU1-001",
+      "name": "Lima",
+      "input": {
+        "lat": -12.05,
+        "lng": -77.04
+      },
+      "expectStatus": 200,
+      "note": "Responde la temperatura actual",
+      "expect": [
+        {
+          "left": "temperatura",
+          "op": "isNumber",
+          "right": ""
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

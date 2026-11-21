@@ -1,0 +1,142 @@
+{
+  "name": "Tutorial 2 · Decidir con una condición",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "c0",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 30,
+      "y": 60,
+      "sid": "INI-01"
+    },
+    {
+      "id": "c1",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "x": 30,
+      "y": 200,
+      "sid": "ENT-01",
+      "data": {
+        "nombre": "Ana",
+        "edad": 20
+      }
+    },
+    {
+      "id": "c2",
+      "type": "condition",
+      "key": "mayor",
+      "name": "¿Es mayor de edad?",
+      "x": 290,
+      "y": 60,
+      "sid": "CND-01",
+      "mode": "all",
+      "rules": [
+        {
+          "left": "entrada.edad",
+          "op": "gte",
+          "right": "18"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "response",
+      "key": "puede",
+      "name": "Puede votar",
+      "x": 1070,
+      "y": 60,
+      "sid": "RES-01",
+      "status": "200",
+      "body": {
+        "mensaje": "{{entrada.nombre}} puede votar",
+        "edad": "{{entrada.edad}}"
+      }
+    },
+    {
+      "id": "c4",
+      "type": "response",
+      "key": "no_puede",
+      "name": "Aún no puede votar",
+      "x": 1070,
+      "y": 190,
+      "sid": "RES-02",
+      "status": "200",
+      "body": {
+        "mensaje": "{{entrada.nombre}} aún no puede votar",
+        "edad": "{{entrada.edad}}"
+      }
+    },
+    {
+      "id": "c5",
+      "type": "note",
+      "key": "nota",
+      "name": "Nota",
+      "x": 30,
+      "y": 330,
+      "sid": "NOT-01",
+      "text": "Sin internet. Elige el escenario «Menor de edad» arriba en la Entrada y ejecuta: el camino cambia a «no». Abre la condición para ver su regla como frase."
+    }
+  ],
+  "edges": [
+    {
+      "from": "c0",
+      "port": "out",
+      "to": "c2"
+    },
+    {
+      "from": "c2",
+      "port": "true",
+      "to": "c3"
+    },
+    {
+      "from": "c2",
+      "port": "false",
+      "to": "c4"
+    }
+  ],
+  "cases": [
+    {
+      "id": "TU2-001",
+      "name": "Mayor de edad",
+      "input": {
+        "nombre": "Ana",
+        "edad": 20
+      },
+      "expectStatus": 200,
+      "note": "",
+      "expect": [
+        {
+          "left": "mensaje",
+          "op": "contains",
+          "right": "puede votar"
+        },
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "puede"
+        }
+      ]
+    },
+    {
+      "id": "TU2-002",
+      "name": "Menor de edad",
+      "input": {
+        "nombre": "Luis",
+        "edad": 15
+      },
+      "expectStatus": 200,
+      "note": "",
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "no_puede"
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

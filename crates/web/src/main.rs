@@ -3,6 +3,7 @@ mod cases;
 mod flow_panels;
 mod flow_steps;
 mod flow_story;
+mod home;
 mod flow_inspector;
 mod flows;
 mod modals;
@@ -87,6 +88,10 @@ fn Shell() -> impl IntoView {
     });
     on_cleanup(move || { keys.remove(); paste.remove(); });
     let _ = in_field;
+    // Al salir del Inicio queda recordado: la próxima vez la app abre donde estabas.
+    Effect::new(move |_| if !a.home.get() { local_set("martino.inicio", "1") });
+    // Cambiar de modo (Ctrl+1/2 o el selector) sale del Inicio.
+    Effect::new(move |prev: Option<Mode>| { let m = a.mode.get(); if prev.is_some_and(|p| p != m) { a.home.set(false) } m });
     let start_w = RwSignal::new(0.0);
     let folder = RwSignal::new(String::new());
     leptos::task::spawn_local(async move {
@@ -107,12 +112,12 @@ fn Shell() -> impl IntoView {
     view! {
         <div id="app">
             <header class="top">
-                <div class="brand"><ui::Cat />"Martino"</div>
+                <button class="brand" title="Inicio: qué es Martino y el tutorial" on:click=move |_| a.home.set(true)><ui::Cat />"Martino"</button>
                 <div class="seg modeseg" role="tablist">
                     // La «gota»: un fondo que se estira y cae sobre el modo elegido.
-                    <span class=move || if a.mode.get() == Mode::Flows { "blob r" } else { "blob l" }></span>
-                    <button class:on=move || a.mode.get() == Mode::Requests on:click=move |_| a.mode.set(Mode::Requests) title="Ctrl+1">"Peticiones"</button>
-                    <button class:on=move || a.mode.get() == Mode::Flows on:click=move |_| a.mode.set(Mode::Flows) title="Ctrl+2">"Flujos"</button>
+                    <span class=move || format!("{}{}", if a.mode.get() == Mode::Flows { "blob r" } else { "blob l" }, if a.home.get() { " off" } else { "" })></span>
+                    <button class:on=move || a.mode.get() == Mode::Requests && !a.home.get() on:click=move |_| { a.mode.set(Mode::Requests); a.home.set(false) } title="Ctrl+1">"Peticiones"</button>
+                    <button class:on=move || a.mode.get() == Mode::Flows && !a.home.get() on:click=move |_| { a.mode.set(Mode::Flows); a.home.set(false) } title="Ctrl+2">"Flujos"</button>
                 </div>
                 <div class="envsel" title="Entorno activo: de aquí salen los valores de {{variables}}">
                     <span class="envsel-l">"Entorno"</span>
@@ -138,6 +143,7 @@ fn Shell() -> impl IntoView {
                     on_drag=move |(dx, _, start): (f64, f64, bool)| { if start { start_w.set(a.sidebar_w.get_untracked()); return } a.sidebar_w.set((start_w.get_untracked() + dx).clamp(180.0, 600.0)) }
                     on_reset=move |_| a.sidebar_w.set(270.0) /> })}
                 {move || match a.mode.get() {
+                    _ if a.home.get() => view! { <home::Home /> }.into_any(),
                     Mode::Requests => view! { <requests::Panels /> }.into_any(),
                     Mode::Flows => view! { <flows::FlowsView /> }.into_any(),
                 }}

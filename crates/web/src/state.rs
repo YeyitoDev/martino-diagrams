@@ -134,6 +134,8 @@ pub struct App {
     pub active_panel: RwSignal<String>,
     pub sidebar: RwSignal<bool>,
     pub sidebar_w: RwSignal<f64>,
+    /// Pantalla de Inicio (presentación y tutorial); se muestra la primera vez.
+    pub home: RwSignal<bool>,
     pub modal: RwSignal<Option<Modal>>,
     pub toasts: RwSignal<Vec<(String, &'static str, String)>>,
     pub tip: RwSignal<Option<Tip>>,
@@ -201,6 +203,7 @@ impl App {
             active_panel: RwSignal::new(String::new()),
             sidebar: RwSignal::new(true),
             sidebar_w: RwSignal::new(270.0),
+            home: RwSignal::new(local_get("martino.inicio").is_none()),
             modal: RwSignal::new(None),
             toasts: RwSignal::new(vec![]),
             tip: RwSignal::new(None),

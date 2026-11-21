@@ -232,13 +232,34 @@ fn RequestEditor(id: String) -> impl IntoView {
         {move || {
             let id = id.clone();
             match tab.get() {
-                "vars" => view! { <crate::ui::Info><p>"Variables de la petición antes de enviarla (ganan sobre el entorno)."</p></crate::ui::Info>{pairs_of(id, |n| n.vars.clone(), |n, v| n.vars = v, "variable", "{{entrada.userId}}")} }.into_any(),
+                "vars" => view! { <crate::ui::Info><p>"Variables de la petición antes de enviarla (ganan sobre el entorno)."</p></crate::ui::Info>{input_chips(ed, id.clone())}{pairs_of(id, |n| n.vars.clone(), |n, v| n.vars = v, "variable", "{{entrada.userId}}")} }.into_any(),
                 "query" => pairs_of(id, |n| n.query_overrides.clone(), |n, v| n.query_overrides = v, "parámetro", "valor").into_any(),
                 "headers" => pairs_of(id, |n| n.header_overrides.clone(), |n, v| n.header_overrides = v, "header", "valor").into_any(),
                 "body" => view! { <p class="muted">"Campos del body JSON a reemplazar (ruta → valor)."</p>{pairs_of(id, |n| n.body_overrides.clone(), |n, v| n.body_overrides = v, "cliente.id", "{{entrada.id}}")} }.into_any(),
                 _ => view! { <crate::ui::Info><p>"Guarda valores de la respuesta en variables del flujo: "<span class="mono">"response.x"</span>", "<span class="mono">"status"</span>", "<span class="mono">"headers.x"</span></p></crate::ui::Info>{pairs_of(id, |n| n.save_vars.clone(), |n, v| n.save_vars = v, "variable", "response.id")} }.into_any(),
             }
         }}
+    }
+}
+
+/// Campos de la Entrada que el servicio aún no usa: un clic agrega la variable `campo = {{entrada.campo}}`.
+fn input_chips(ed: Ed, id: String) -> impl IntoView {
+    let id = StoredValue::new(id);
+    let free = move || ed.flow.with(|f| {
+        let (Some(inp), Some(n)) = (f.input_node(), f.node(&id.get_value())) else { return vec![] };
+        let fields = inp.data.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+        fields.into_iter().map(|k| (format!("{{{{{}.{k}}}}}", inp.key), k)).filter(|(r, _)| !n.vars.iter().any(|p| p.value.contains(r.as_str()))).collect::<Vec<_>>()
+    });
+    move || {
+        let list = free();
+        (!list.is_empty()).then(|| view! {
+            <div class="in-chips"><span class="muted">"Insertar de la Entrada:"</span>
+                {list.into_iter().map(|(r, k)| { let (r2, k2) = (r.clone(), k.clone()); view! {
+                    <button class="chip v-flow" title=format!("Agrega la variable {k} = {r}")
+                        on:click=move |_| { let (r, k) = (r2.clone(), k2.clone()); ed.edit_node(&id.get_value(), move |n| n.vars.push(Pair::new(&k, &r))) }>{format!("＋ {k}")}</button>
+                } }).collect_view()}
+            </div>
+        })
     }
 }
 

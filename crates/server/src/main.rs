@@ -42,6 +42,15 @@ enum Cmd {
         #[arg(long)]
         cases: bool,
     },
+    /// Muestra un flujo en YAML (para leerlo o usarlo de plantilla)
+    FlowYaml { id: String },
+    /// Crea o reemplaza un flujo desde un YAML (`-` = entrada estándar); valida que se pueda ejecutar
+    FlowImport {
+        file: PathBuf,
+        /// Id con el que se guarda (`flows/<id>.flow.json`); si existe, lo reemplaza
+        #[arg(long)]
+        id: Option<String>,
+    },
     /// Importa una colección o entorno Postman v2.1
     ImportPostman {
         file: PathBuf,
@@ -75,6 +84,33 @@ fn default_root() -> Option<PathBuf> {
         std::fs::create_dir_all(&d).ok()?;
         Some(d)
     })
+}
+
+/// Lo que haría fallar el flujo al ejecutarlo y `validate` no ve: colección, peticiones y tablas que no existen.
+fn import_problems(core: &Core, flow: &martino_core::flow::Flow) -> Vec<String> {
+    let mut out = martino_core::flow::validate(flow);
+    if !flow.nodes.iter().any(|n| n.kind == "start") {
+        out.push("falta `inicio: [clave_del_primer_paso]`".into());
+    }
+    let needs_col = flow.nodes.iter().any(|n| !n.req_ref.is_empty() || n.kind == "lookup");
+    if needs_col && core.store.col_dir(&flow.collection).is_err() {
+        out.push(format!("la colección «{}» no existe (mira collections/)", flow.collection));
+        return out;
+    }
+    for n in &flow.nodes {
+        if n.kind == "request" && n.req_ref.is_empty() && n.request.is_none() {
+            out.push(format!("{}: el servicio necesita `ref` (petición guardada) o `request` (petición dentro del flujo)", n.key));
+        }
+        if !n.req_ref.is_empty() && core.store.read_request(&flow.collection, &n.req_ref).is_err() {
+            out.push(format!("{}: no existe la petición «{}» en {}", n.key, n.req_ref, flow.collection));
+        }
+        if let Some(t) = n.lookup.as_ref().map(|l| l.table.as_str()).filter(|t| !t.is_empty()) {
+            if core.store.read_table(&flow.collection, t).is_err() {
+                out.push(format!("{}: no existe la tabla «{t}» en {}", n.key, flow.collection));
+            }
+        }
+    }
+    out
 }
 
 #[tokio::main]
@@ -142,6 +178,30 @@ async fn main() {
             println!("▶ {} ({id})", flow.name);
             flow_job(core, flow, body, Default::default(), emit).await;
             std::process::exit(failed.load(std::sync::atomic::Ordering::SeqCst) as i32);
+        }
+        Cmd::FlowYaml { id } => {
+            let core = Core::new(Config::load(&root, json!({})));
+            print!("{}", martino_core::flow_yaml::flow_to_yaml(&core.flows.get(&id).unwrap_or_else(|e| die(e))));
+        }
+        Cmd::FlowImport { file, id } => {
+            let core = Core::new(Config::load(&root, json!({})));
+            let src = if file.as_os_str() == "-" { std::io::read_to_string(std::io::stdin()) } else { std::fs::read_to_string(&file) };
+            let mut flow = martino_core::flow_yaml::flow_from_yaml(&src.unwrap_or_else(|e| die(format!("{}: {e}", file.display())))).unwrap_or_else(|e| die(e));
+            let problems = import_problems(&core, &flow);
+            if !problems.is_empty() {
+                die(format!("El flujo no se puede ejecutar así:\n  - {}", problems.join("\n  - ")));
+            }
+            // Sin `pos`, cada paso va al carril de su etapa, como el botón «Ordenar» de la UI (260 de ancho, 142 de alto).
+            if flow.nodes.iter().all(|n| n.x == 0.0 && n.y == 0.0) {
+                martino_core::layout::arrange(&mut flow, 260.0, 142.0);
+            }
+            martino_core::layout::assign_codes(&mut flow);
+            let id = match id {
+                Some(id) => core.flows.put(&id, &flow).map(|_| id),
+                None => core.flows.create(&flow),
+            }
+            .unwrap_or_else(|e| die(e));
+            println!("✓ flows/{id}.flow.json ({} pasos, {} casos)\n  Ejecútalo: martino flow {id} --cases", flow.nodes.len(), flow.cases.len());
         }
         Cmd::ImportPostman { file, name, collection } => {
             let core = Core::new(Config::load(&root, json!({})));
