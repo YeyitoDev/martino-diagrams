@@ -710,3 +710,17 @@ textarea.in.bad { border-color: var(--err); }
 @media (prefers-reduced-motion: reduce) { .h-hero > *, .h-demo, .h-card, .h-step, .h-wire i { animation: none; } .h-bar i { transition: none; } }
 @media (max-width: 640px) { .h-hero h1 { font-size: 34px; } .h-tut li { grid-template-columns: 28px 1fr; } .h-tut li .btn { grid-column: 2; justify-self: start; } }
 .modeseg .blob.off { opacity: 0; }
+
+/* Variables del servicio en el panel derecho: nombre arriba, valor a todo el ancho debajo. */
+.finsp .kv, .finsp .kv tbody { display: block; }
+.finsp .kv tr { display: grid; grid-template-columns: 22px minmax(0, 1fr) 24px; gap: 4px; align-items: center; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.finsp .kv td { display: block; padding: 0; min-width: 0; }
+.finsp .kv td.ck { padding-top: 0; }
+.finsp .kv td:nth-child(3) { grid-column: 2 / 4; grid-row: 2; }
+.finsp .kv td:nth-child(2) .in { font: 600 12px var(--mono); background: transparent; border-color: transparent; padding-left: 2px; }
+.finsp .kv td:nth-child(2) .in::placeholder { font-weight: 400; }
+.finsp .kv td:nth-child(2) .in:hover, .finsp .kv td:nth-child(2) .in:focus { border-color: var(--line-2); }
+.finsp .kv .vf-prev { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 2px; }
+.in-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 11px; }
+.in-chips .chip { font: 600 11px var(--mono); background: var(--bg-2); border: 1px dashed var(--line-2); border-radius: 99px; padding: 1px 8px; cursor: pointer; }
+.in-chips .chip:hover { border-style: solid; }
