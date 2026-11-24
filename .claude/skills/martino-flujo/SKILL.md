@@ -11,6 +11,10 @@ con sus casos QA. No termines hasta que `martino flow <id> --cases` salga con c�
 
 ## 0. Ubica Martino
 
+Si tienes las herramientas MCP `martino_*` (servidor `martino mcp`, registrado en `.mcp.json`), úsalas en vez de la CLI:
+`martino_listar`, `martino_peticion`, `martino_flujo` (= `flow-yaml`), `martino_importar_flujo` (= `flow-import`),
+`martino_ejecutar_flujo` (= `flow`, con `detalle: true` ves lo que respondió cada paso) y `martino_guia` (esta guía).
+
 - Binario: `martino` en el PATH, o `./target/release/martino` dentro del repo (`cargo build --release -p martino`).
 - Carpeta de trabajo (`--root`): la que tiene `collections/` y `flows/`. En el repo es `.`.
 - En los comandos de abajo, `M` = `martino --root <carpeta>`.
@@ -55,6 +59,8 @@ casos:
     expect: [{ left: nodo, op: eq, right: ok }]
 ```
 
+Con `orden: carriles` en la raíz, los pasos quedan en carriles por sistema: una fila para Martino, una por cada sistema que se llama y una para las respuestas (ejemplo: `ejemplos/banco/pago-tarjeta-carriles.yml`). Sin esa línea, se ordenan por etapa.
+
 No pongas `id`, `pos` ni `sid`: el import ordena los pasos en carriles y les asigna códigos (SRV-01…).
 
 ### Tipos de paso
@@ -69,7 +75,7 @@ No pongas `id`, `pos` ni `sid`: el import ordena los pasos en carriles y les asi
 | `condicion` | `rules: [{left, op, right}]`, `mode: all\|any` | `si`, `no` | — |
 | `equivalencia` | `lookup: {table, value, column, onMiss: error\|keep\|default, default}` | `siguiente` | la fila: `clave.columna` |
 | `cifrado` | `crypto: {op, format, alg, enc, key, input, output}` | `siguiente` | `{{clave}}` (texto o JSON) |
-| `respuesta` | `status: "200"` (texto), `body` (admite `{{…}}`) | — | termina el flujo: la primera respuesta que llega gana |
+| `respuesta` | `status: "200"` (texto), `body` como objeto YAML, no como texto JSON (`"{{clave}}"` devuelve un objeto entero) | — | termina el flujo: la primera respuesta que llega gana |
 | `fin` | — | — | corta el flujo sin responder |
 | `nota` | `text` | — | sólo se ve en el lienzo |
 
@@ -129,6 +135,19 @@ Cada paso imprime `✓/✗ clave (tipo) status ms error`. Ante un `✗` o un cas
 | `status inválido` | `status` de la respuesta no es un número tras resolver la plantilla |
 
 Itera: corrige el YAML, vuelve a `flow-import` con el mismo `--id` y ejecuta otra vez.
+
+## Explicar un servicio (pedido de un analista funcional)
+
+Cuando pregunten «¿qué hace este servicio?» o «¿cómo funciona por dentro?», el flujo ES el flujograma:
+1. Lee el código o las peticiones (`martino_peticion` trae `docs`). Anota cada regla con su `archivo:línea`.
+2. Un paso por llamada real, en el orden en que ocurre. En su `desc`: sistema, método y ruta, qué decide y qué códigos de error da.
+3. Un paso `nota` «Valores que viajan»: qué valor sale de qué paso y en cuál se reutiliza (`retencionId: Retener → Pagar`).
+4. Un caso QA por regla que quieras probar; si el comportamiento sorprende, el caso lo deja demostrado.
+5. Ejecuta con `detalle` y responde con: la secuencia de pasos, la tabla de valores, los hallazgos (lo que el código hace distinto de lo que se espera) y el id del flujo para verlo en la UI.
+
+Ejemplos: `banco--pago-tarjeta` (integración cuentas → core de tarjetas, `ejemplos/banco/`) y
+`json-server--relaciones-y-borrado` (lógica interna de typicode/json-server, `ejemplos/json-server/`).
+Los casos de un mismo flujo corren en paralelo: si comparten estado en el servicio (crear y borrar), usa un solo caso.
 
 ## 5. Entrega
 

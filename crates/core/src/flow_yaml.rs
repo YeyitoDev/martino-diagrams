@@ -140,6 +140,10 @@ pub fn flow_from_yaml(src: &str) -> Result<Flow, String> {
             flow = serde_json::from_value(tmp).map_err(|e| format!("{name}: {e}"))?;
         }
     }
+    // `orden: carriles` acomoda los pasos por sistema; sin él, el import los ordena por etapa.
+    if root.get("orden").and_then(Value::as_str) == Some("carriles") {
+        crate::layout::arrange_systems(&mut flow);
+    }
     Ok(flow)
 }
 

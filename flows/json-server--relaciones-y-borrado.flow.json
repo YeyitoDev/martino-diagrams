@@ -1,0 +1,781 @@
+{
+  "name": "json-server · relaciones y borrado",
+  "collection": "json-server",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 30.0,
+      "y": 60.0,
+      "sid": "INI-01"
+    },
+    {
+      "id": "guia",
+      "type": "note",
+      "key": "guia",
+      "name": "Qué explica este flujo",
+      "x": 0.0,
+      "y": 0.0,
+      "text": "Lógica interna de typicode/json-server v1 (src/service.ts). Cada paso cita el archivo y la línea. Pregunta funcional: si borro una cuenta, ¿qué pasa con sus movimientos?",
+      "sid": "NOT-01"
+    },
+    {
+      "id": "entrada",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "desc": "umbral = monto mínimo para el filtro; porPagina = tamaño de página.",
+      "x": 30.0,
+      "y": 202.0,
+      "data": {
+        "umbral": 100,
+        "porPagina": 2
+      },
+      "sid": "ENT-01"
+    },
+    {
+      "id": "cuenta",
+      "type": "request",
+      "key": "cuenta",
+      "name": "Crear cuenta",
+      "desc": "POST /cuentas (app.ts:143 → service.create, service.ts:145). Ignora cualquier id del body y genera uno aleatorio de 11 caracteres (random-id.ts: 8 bytes en base64url). Responde 201 (app.ts:164).",
+      "x": 810.0,
+      "y": 60.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{jsUrl}}/cuentas",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"titular\": \"Ana Quispe\", \"moneda\": \"PEN\"}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-01"
+    },
+    {
+      "id": "cid",
+      "type": "extract",
+      "key": "cid",
+      "name": "Guardar cuentaId",
+      "desc": "La relación se arma por convención de nombre: <singular de la colección>Id. Para «cuentas» la llave foránea es cuentaId (service.ts:49, inflection.singularize).",
+      "x": 550.0,
+      "y": 60.0,
+      "vars": [
+        {
+          "name": "cuentaId",
+          "value": "cuenta.response.id"
+        }
+      ],
+      "sid": "EXT-01"
+    },
+    {
+      "id": "mov_a",
+      "type": "request",
+      "key": "mov_a",
+      "name": "Movimiento 120",
+      "x": 810.0,
+      "y": 202.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{jsUrl}}/movimientos",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"cuentaId\": \"{{cuentaId}}\", \"monto\": 120, \"tipo\": \"abono\"}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-02"
+    },
+    {
+      "id": "mov_b",
+      "type": "request",
+      "key": "mov_b",
+      "name": "Movimiento 2500",
+      "x": 810.0,
+      "y": 344.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{jsUrl}}/movimientos",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"cuentaId\": \"{{cuentaId}}\", \"monto\": 2500, \"tipo\": \"abono\"}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-03"
+    },
+    {
+      "id": "mov_c",
+      "type": "request",
+      "key": "mov_c",
+      "name": "Movimiento 40",
+      "x": 810.0,
+      "y": 486.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{jsUrl}}/movimientos",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"cuentaId\": \"{{cuentaId}}\", \"monto\": 40, \"tipo\": \"cargo\"}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-04"
+    },
+    {
+      "id": "listar",
+      "type": "request",
+      "key": "listar",
+      "name": "Filtrar y ordenar",
+      "desc": "GET /movimientos?cuentaId=…&monto:gt=…&_sort=-monto. parse-where.ts:7 separa campo y operador por el último «:» (también acepta monto_gt); coerceValue (parse-where.ts:45) convierte «100» en número. _sort con «-» ordena descendente (service.ts:135).",
+      "x": 810.0,
+      "y": 628.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{jsUrl}}/movimientos?cuentaId={{cuentaId}}&monto:gt={{entrada.umbral}}&_sort=-monto",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-05"
+    },
+    {
+      "id": "paginar",
+      "type": "request",
+      "key": "paginar",
+      "name": "Paginar",
+      "desc": "Con _page la respuesta deja de ser una lista y pasa a ser {first, prev, next, last, pages, items, data} (service.ts:139). Una página fuera de rango no da error: se ajusta a la última (paginate.ts:18). Sin _per_page usa 10.",
+      "x": 810.0,
+      "y": 770.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{jsUrl}}/movimientos?cuentaId={{cuentaId}}&_page=1&_per_page={{entrada.porPagina}}",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-06"
+    },
+    {
+      "id": "embed",
+      "type": "request",
+      "key": "embed",
+      "name": "Cuenta con sus movimientos",
+      "desc": "GET /cuentas/{id}?_embed=movimientos. embed (service.ts:23): como «movimientos» es plural, busca los que tengan cuentaId = id y los pega como lista.",
+      "x": 810.0,
+      "y": 912.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{jsUrl}}/cuentas/{{cuentaId}}?_embed=movimientos",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-07"
+    },
+    {
+      "id": "borrar",
+      "type": "request",
+      "key": "borrar",
+      "name": "Borrar la cuenta",
+      "desc": "DELETE /cuentas/{id} (app.ts:153 → destroyById, service.ts:202). No borra los movimientos: nullifyForeignKey (service.ts:49) les pone cuentaId = null en TODAS las colecciones.",
+      "x": 810.0,
+      "y": 1054.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "DELETE",
+        "url": "{{jsUrl}}/cuentas/{{cuentaId}}",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-08"
+    },
+    {
+      "id": "huerfano",
+      "type": "request",
+      "key": "huerfano",
+      "name": "El movimiento sigue vivo",
+      "desc": "El movimiento de 120 sigue existiendo, ahora con cuentaId null (huérfano).",
+      "x": 810.0,
+      "y": 1196.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{jsUrl}}/movimientos/{{mov_a.response.id}}",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-09"
+    },
+    {
+      "id": "cuenta2",
+      "type": "request",
+      "key": "cuenta2",
+      "name": "Crear otra cuenta",
+      "x": 810.0,
+      "y": 1338.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{jsUrl}}/cuentas",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"titular\": \"Luis Huamán\", \"moneda\": \"PEN\"}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-10"
+    },
+    {
+      "id": "mov_d",
+      "type": "request",
+      "key": "mov_d",
+      "name": "Movimiento de la otra cuenta",
+      "x": 810.0,
+      "y": 1480.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{jsUrl}}/movimientos",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"cuentaId\": \"{{cuenta2.response.id}}\", \"monto\": 75, \"tipo\": \"abono\"}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-11"
+    },
+    {
+      "id": "borrar2",
+      "type": "request",
+      "key": "borrar2",
+      "name": "Borrar en cascada",
+      "desc": "DELETE /cuentas/{id}?_dependent=movimientos. deleteDependents (service.ts:67) no filtra por la cuenta borrada: elimina todo movimiento con cuentaId null, también los huérfanos de cuentas borradas antes.",
+      "x": 810.0,
+      "y": 1622.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "DELETE",
+        "url": "{{jsUrl}}/cuentas/{{cuenta2.response.id}}?_dependent=movimientos",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-12"
+    },
+    {
+      "id": "huerfano2",
+      "type": "request",
+      "key": "huerfano2",
+      "name": "¿Sobrevive el huérfano?",
+      "desc": "Se pide otra vez el movimiento de 120 (de la primera cuenta). Si responde 404 (app.ts:162), la cascada de la segunda cuenta lo borró.",
+      "x": 810.0,
+      "y": 1764.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{jsUrl}}/movimientos/{{mov_a.response.id}}",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-13"
+    },
+    {
+      "id": "resumen",
+      "type": "transform",
+      "key": "resumen",
+      "name": "Resumen de hallazgos",
+      "x": 550.0,
+      "y": 202.0,
+      "code": "return {\n  filtrados: nodes.listar.response.length,\n  orden: nodes.listar.response.map(m => m.monto).join(\" > \"),\n  paginas: nodes.paginar.response.pages,\n  siguientePagina: nodes.paginar.response.next,\n  embebidos: nodes.embed.response.movimientos.length,\n  cuentaIdTrasBorrar: nodes.huerfano.response.cuentaId,\n  largoDelId: nodes.cuenta.response.id.length,\n  huerfanoSobreviveCascadaAjena: nodes.huerfano2.status === 200\n}",
+      "sid": "TRF-01"
+    },
+    {
+      "id": "fin",
+      "type": "response",
+      "key": "fin",
+      "name": "200 Hallazgos",
+      "x": 1070.0,
+      "y": 60.0,
+      "status": "200",
+      "body": "{{resumen}}",
+      "sid": "RES-01"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "port": "out",
+      "to": "cuenta"
+    },
+    {
+      "from": "cuenta",
+      "port": "out",
+      "to": "cid"
+    },
+    {
+      "from": "cid",
+      "port": "out",
+      "to": "mov_a"
+    },
+    {
+      "from": "cid",
+      "port": "out",
+      "to": "mov_b"
+    },
+    {
+      "from": "cid",
+      "port": "out",
+      "to": "mov_c"
+    },
+    {
+      "from": "mov_a",
+      "port": "out",
+      "to": "listar"
+    },
+    {
+      "from": "mov_b",
+      "port": "out",
+      "to": "listar"
+    },
+    {
+      "from": "mov_c",
+      "port": "out",
+      "to": "listar"
+    },
+    {
+      "from": "listar",
+      "port": "out",
+      "to": "paginar"
+    },
+    {
+      "from": "paginar",
+      "port": "out",
+      "to": "embed"
+    },
+    {
+      "from": "embed",
+      "port": "out",
+      "to": "borrar"
+    },
+    {
+      "from": "borrar",
+      "port": "out",
+      "to": "huerfano"
+    },
+    {
+      "from": "huerfano",
+      "port": "out",
+      "to": "cuenta2"
+    },
+    {
+      "from": "cuenta2",
+      "port": "out",
+      "to": "mov_d"
+    },
+    {
+      "from": "mov_d",
+      "port": "out",
+      "to": "borrar2"
+    },
+    {
+      "from": "borrar2",
+      "port": "out",
+      "to": "huerfano2"
+    },
+    {
+      "from": "huerfano2",
+      "port": "out",
+      "to": "resumen"
+    },
+    {
+      "from": "huerfano2",
+      "port": "error",
+      "to": "resumen"
+    },
+    {
+      "from": "resumen",
+      "port": "out",
+      "to": "fin"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [
+    {
+      "id": "JS-001",
+      "name": "Umbral 100, páginas de 2",
+      "input": {
+        "umbral": 100,
+        "porPagina": 2
+      },
+      "expectStatus": 200,
+      "expect": [
+        {
+          "left": "filtrados",
+          "op": "eq",
+          "right": "2"
+        },
+        {
+          "left": "orden",
+          "op": "eq",
+          "right": "2500 > 120"
+        },
+        {
+          "left": "paginas",
+          "op": "eq",
+          "right": "2"
+        },
+        {
+          "left": "embebidos",
+          "op": "eq",
+          "right": "3"
+        },
+        {
+          "left": "cuentaIdTrasBorrar",
+          "op": "isNull",
+          "right": ""
+        },
+        {
+          "left": "largoDelId",
+          "op": "eq",
+          "right": "11"
+        },
+        {
+          "left": "huerfanoSobreviveCascadaAjena",
+          "op": "eq",
+          "right": "false"
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

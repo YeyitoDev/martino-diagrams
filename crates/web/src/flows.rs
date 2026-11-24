@@ -133,6 +133,8 @@ pub enum Pane {
     Canvas,
     /// El mismo flujo como pasos numerados por etapa.
     Story,
+    /// El camino de un caso en línea recta, por sistema.
+    Scenario,
     Qa,
     Tables,
 }
@@ -470,9 +472,9 @@ impl Ed {
         self.pane.update(|x| *x = if *x == p { Pane::Canvas } else { p });
     }
 
-    /// Acomoda los pasos en columnas (botón «Ordenar»); se puede deshacer.
-    pub fn arrange(&self) {
-        self.edit(|f| martino_core::layout::arrange(f, crate::flow_story::LANE_W, H + 80.0));
+    /// Acomoda los pasos (botones «Ordenar» y «Carriles»); se puede deshacer.
+    pub fn arrange(&self, by: impl FnOnce(&mut Flow)) {
+        self.edit(by);
         self.rev.update(|r| *r += 1);
         self.fit();
     }
@@ -615,6 +617,7 @@ pub fn FlowsView() -> impl IntoView {
                 match ed.pane.get() {
                     Pane::Qa => view! { <crate::cases::CasesView /> }.into_any(),
                     Pane::Tables => view! { <crate::tables::TablesView /> }.into_any(),
+                    Pane::Scenario => view! { <div class="fbody"><crate::flow_scenario::ScenarioView />{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
                     Pane::Story => view! { <div class="fbody"><crate::flow_story::StoryView />{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
                     Pane::Canvas => view! { <div class="fbody"><Canvas />{move || ed.svc.get().then(|| view! { <crate::flow_panels::ServicePalette /> })}{move || ed.insp.get().then(|| view! { <Inspector /> })}</div> }.into_any(),
                 }
@@ -641,9 +644,10 @@ fn Toolbar() -> impl IntoView {
                 <span class="dirty-dot" class:on=move || ed.dirty.get() title="Cambios sin guardar"></span>
                 <button class="btn ghost sm danger" title="Borrar este flujo" disabled=move || ed.id.get().is_none() on:click=del>"🗑"</button>
             </div>
-            <div class="views" title="Ver el flujo como lienzo o como historia (pasos numerados por etapa)">
-                <button class:on=move || ed.pane.get() != Pane::Story on:click=move |_| ed.pane.set(Pane::Canvas)>"Lienzo"</button>
-                <button class:on=move || ed.pane.get() == Pane::Story on:click=move |_| ed.pane.set(Pane::Story)>"Historia"</button>
+            <div class="views" title="Ver el flujo como lienzo, como historia (pasos numerados por etapa) o por escenario (el camino de un caso, por sistema)">
+                {[(Pane::Canvas, "Lienzo"), (Pane::Story, "Historia"), (Pane::Scenario, "Escenario")].into_iter().map(|(p, l)| view! {
+                    <button class:on=move || ed.pane.get() == p || (p == Pane::Canvas && matches!(ed.pane.get(), Pane::Qa | Pane::Tables)) on:click=move |_| ed.pane.set(p)>{l}</button>
+                }).collect_view()}
             </div>
             <button class="btn ghost sm" class:on=move || ed.svc.get() title="Buscar un servicio de la colección y añadirlo (tecla S)" on:click=move |_| ed.svc.update(|v| *v = !*v)>"▤ Servicios "<kbd>"S"</kbd></button>
             <crate::flow_panels::AddStep />
@@ -651,8 +655,9 @@ fn Toolbar() -> impl IntoView {
                 <button class="btn ghost sm" title="Deshacer (Ctrl+Z)" on:click=move |_| ed.travel(true)>"↶"</button>
                 <button class="btn ghost sm" title="Rehacer (Ctrl+Y)" on:click=move |_| ed.travel(false)>"↷"</button>
                 <button class="btn ghost sm" title="Encuadrar todo" on:click=move |_| ed.fit()>"⊡"</button>
-                <button class="btn ghost sm" class:hot=move || !ed.flow.with(crate::flow_story::in_lanes)
-                    title="Ordenar: acomoda cada paso en el carril de su etapa (Datos, Validar, Preparar, Enviar, Responder). Ctrl+Z deshace" on:click=move |_| ed.arrange()>"⇶ Ordenar"</button>
+                <button class="btn ghost sm" class:hot=move || !ed.flow.with(|f| crate::flow_story::in_lanes(f) || martino_core::layout::in_system_lanes(f))
+                    title="Ordenar: acomoda cada paso en el carril de su etapa (Datos, Validar, Preparar, Enviar, Responder). Ctrl+Z deshace" on:click=move |_| ed.arrange(|f| martino_core::layout::arrange(f, crate::flow_story::LANE_W, H + 80.0))>"⇶ Ordenar"</button>
+                <button class="btn ghost sm" title="Carriles: una fila por sistema (Martino, cada servicio que llama, Respuesta) y el camino de izquierda a derecha. Ctrl+Z deshace" on:click=move |_| ed.arrange(martino_core::layout::arrange_systems)>"☰ Carriles"</button>
             </div>
             <span class="grow"></span>
             <div class="tgroup" title="Ver">

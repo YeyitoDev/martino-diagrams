@@ -6,7 +6,9 @@ use crate::ui::{copy, JsonTree, KvTable, VarField};
 use leptos::prelude::*;
 use martino_core::flow::{self, Flow, Node, Rule, OPS};
 use martino_core::flow_yaml::{flow_from_yaml, flow_to_yaml};
-use martino_core::model::Pair;
+use martino_core::model::{Pair, Request, SentRequest};
+use leptos::task::spawn_local;
+use crate::api;
 use serde_json::Value;
 
 const COLORS: [&str; 7] = ["", "#f5c518", "#57c78a", "#6aa8f0", "#c792ea", "#ef6b6b", "#f39a6b"];
@@ -214,17 +216,18 @@ fn RequestEditor(id: String) -> impl IntoView {
     let id3 = id.clone();
     let tab = RwSignal::new("vars");
     let tabs: [(&str, &str); 5] = [("vars", "Vars"), ("query", "Query"), ("headers", "Headers"), ("body", "Body"), ("save", "Guardar")];
-    let id_b = id.clone();
+    let (id_b, id4, id_e) = (id.clone(), id.clone(), id.clone());
     view! {
         <h4>"Petición"</h4>
         <div class="row">
             <select class="in grow" prop:value=move || ed.flow.with(|f| f.node(&id2).map(|n| n.req_ref.clone()).unwrap_or_default())
                 on:change=move |e| { let v = event_target_value(&e); ed.edit_node(&id_r, move |n| n.req_ref = v) }>
-                <option value="">"— elige una petición —"</option>
+                <option value="">{move || if ed.flow.with(|f| f.node(&id4).is_some_and(|n| n.req_ref.is_empty() && n.request.is_some())) { "— petición propia (cURL) —" } else { "— elige una petición —" }}</option>
                 {move || col_paths(ed).into_iter().map(|(p, name)| { let (on, i) = (p.clone(), id3.clone()); view! { <option value=p.clone() selected=move || ed.flow.with(|f| f.node(&i).is_some_and(|n| n.req_ref == on))>{format!("{name}  ·  {p}")}</option> } }).collect_view()}
             </select>
             <button class="btn primary" title="Enviar sólo este servicio con los datos de la última ejecución" on:click=move |_| { ed.run_node(id_b.clone()) }>"Enviar"</button>
         </div>
+        <Endpoint id=id_e />
         <crate::ui::Info><p>"Puedes arrastrar una petición de la barra lateral al lienzo. Usa "<span class="mono">"{{entrada.campo}}"</span>" o "<span class="mono">"{{otro_nodo.response.x}}"</span>" en los valores."</p></crate::ui::Info>
         <div class="tabs">
             {tabs.into_iter().map(|(k, l)| view! { <button class:on=move || tab.get() == k on:click=move |_| tab.set(k)>{l}</button> }).collect_view()}
@@ -239,6 +242,99 @@ fn RequestEditor(id: String) -> impl IntoView {
                 _ => view! { <crate::ui::Info><p>"Guarda valores de la respuesta en variables del flujo: "<span class="mono">"response.x"</span>", "<span class="mono">"status"</span>", "<span class="mono">"headers.x"</span></p></crate::ui::Info>{pairs_of(id, |n| n.save_vars.clone(), |n, v| n.save_vars = v, "variable", "response.id")} }.into_any(),
             }
         }}
+    }
+}
+
+/// Qué endpoint llama el servicio: método y URL con sus `{{variables}}` (y de dónde sale cada una),
+/// su documentación y lo que se envió de verdad la última vez. También acepta pegar un cURL.
+#[component]
+fn Endpoint(id: String) -> impl IntoView {
+    let (a, ed) = (app(), ed());
+    let id = StoredValue::new(id);
+    let node = Memo::new(move |_| ed.flow.with(|f| f.node(&id.get_value()).cloned()).unwrap_or_default());
+    let saved: RwSignal<Option<Request>> = RwSignal::new(None);
+    // Sólo cuando cambia la petición elegida (no con cada tecla en las vars del servicio).
+    let target = Memo::new(move |_| (ed.flow.with(|f| f.collection.clone()), node.with(|n| n.req_ref.clone())));
+    Effect::new(move |_| {
+        let want = target.get();
+        saved.set(None);
+        if !want.1.is_empty() {
+            spawn_local(async move {
+                let r = api::get::<Request>(&format!("/api/request?collection={}&path={}", api::enc(&want.0), api::enc(&want.1))).await.ok();
+                // Si eligieron otra petición mientras llegaba esta, se descarta.
+                if target.get_untracked() == want {
+                    saved.set(r);
+                }
+            });
+        }
+    });
+    let curl = RwSignal::new(String::new());
+    let use_curl = move |_| match martino_core::curl::parse_curl(&curl.get_untracked()) {
+        Ok(r) => {
+            ed.edit_node(&id.get_value(), move |n| { n.req_ref.clear(); n.request = Some(r) });
+            curl.set(String::new());
+            a.toast("ok", "El servicio ahora usa ese cURL");
+        }
+        Err(e) => a.err(e),
+    };
+    let detail = move || {
+        let n = node.get();
+        let inline = n.req_ref.is_empty();
+        let r = if inline { n.request.clone() } else { saved.get() }?;
+        // Variables que pide la petición, en orden de aparición, y quién les da valor.
+        let mut names: Vec<String> = vec![];
+        let texts = [r.url.clone(), r.body.json.clone(), r.body.text.clone()].into_iter().chain(r.headers.iter().map(|h| h.value.clone()));
+        for t in texts {
+            for seg in martino_core::interp::segments(&t) {
+                if let martino_core::interp::Seg::Var(v, _) = seg {
+                    if !names.iter().any(|x| x == v) {
+                        names.push(v.to_string());
+                    }
+                }
+            }
+        }
+        let rows = names.into_iter().map(|v| {
+            let from = n.vars.iter().find(|p| p.name == v).map(|p| p.value.clone());
+            let cls = if from.is_some() { "mono" } else { "muted" };
+            view! { <span class="mono">{v}</span><span class=cls>{from.unwrap_or_else(|| "del entorno o de una variable del flujo".into())}</span> }
+        }).collect_view();
+        let m = r.method.to_lowercase();
+        Some(view! {
+            <div class="endpoint">
+                <div class="row">
+                    <span class=format!("m m-{m}")>{r.method.to_uppercase()}</span>
+                    {(!r.id.is_empty()).then(|| view! { <span class="fn-id">{r.id.clone()}</span> })}
+                    <b class="grow">{if r.name.is_empty() { n.name.clone() } else { r.name.clone() }}</b>
+                </div>
+                {if inline {
+                    view! { <input class="in mono" title="URL de la petición propia" prop:value=r.url.clone()
+                        on:change=move |e| { let v = event_target_value(&e); ed.edit_node(&id.get_value(), move |n| if let Some(r) = n.request.as_mut() { r.url = v }) } /> }.into_any()
+                } else {
+                    view! { <div class="mono ep-url">{r.url.clone()}</div> }.into_any()
+                }}
+                <div class="ep-vars">{rows}</div>
+                {(!r.docs.trim().is_empty()).then(|| view! { <p class="ep-docs">{r.docs.trim().to_string()}</p> })}
+            </div>
+        })
+    };
+    let last = move || ed.steps.with(|s| s.get(&id.get_value()).cloned()).and_then(|st| {
+        let sent: SentRequest = serde_json::from_value(st["sent"].clone()).ok().filter(|r: &SentRequest| !r.url.is_empty())?;
+        let status = st["out"]["status"].as_u64().map(|s| format!(" → {s}")).unwrap_or_default();
+        Some(view! {
+            <details class="ep-sent" open>
+                <summary>{format!("Última ejecución{status} · {} ms", st["ms"])}</summary>
+                <pre class="code">{martino_core::model::raw_http(&sent, true)}</pre>
+            </details>
+        })
+    });
+    view! {
+        {detail}
+        {last}
+        <details class="ep-curl">
+            <summary>"Pegar un cURL en este servicio"</summary>
+            <textarea class="in mono" rows="4" placeholder="curl -X POST https://… -H 'Content-Type: application/json' -d '{…}'" prop:value=move || curl.get() on:input=move |e| curl.set(event_target_value(&e))></textarea>
+            <button class="btn sm" disabled=move || curl.with(|c| c.trim().is_empty()) on:click=use_curl>"Usar este cURL"</button>
+        </details>
     }
 }
 

@@ -1,0 +1,493 @@
+{
+  "name": "Pago de tarjeta desde cuenta",
+  "collection": "banco",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 30.0,
+      "y": 60.0,
+      "sid": "INI-01"
+    },
+    {
+      "id": "entrada",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "desc": "Lo que manda la app móvil. nroCuenta es la cuenta de donde sale el dinero; nroTarjeta, la tarjeta que se paga.",
+      "x": 30.0,
+      "y": 202.0,
+      "data": {
+        "nroCuenta": "191-0001",
+        "nroTarjeta": "4111111111111111",
+        "monto": 250,
+        "moneda": "PEN"
+      },
+      "sid": "ENT-01"
+    },
+    {
+      "id": "cuenta",
+      "type": "request",
+      "key": "cuenta",
+      "name": "Consultar cuenta",
+      "desc": "Sistema de cuentas · GET /cuentas/{nroCuenta}. Trae saldoDisponible y estado; no mueve dinero. 404 si la cuenta no existe.",
+      "x": 810.0,
+      "y": 60.0,
+      "ref": "Cuentas/Consultar-cuenta.yml",
+      "vars": [
+        {
+          "name": "nroCuenta",
+          "value": "{{entrada.nroCuenta}}"
+        }
+      ],
+      "sid": "SRV-01"
+    },
+    {
+      "id": "puede_pagar",
+      "type": "condition",
+      "key": "puede_pagar",
+      "name": "¿Cuenta activa y con saldo?",
+      "desc": "Regla de negocio antes de tocar dinero. Evita una retención que el sistema de cuentas igual rechazaría (423 o 422).",
+      "x": 290.0,
+      "y": 60.0,
+      "rules": [
+        {
+          "left": "cuenta.response.estado",
+          "op": "eq",
+          "right": "ACTIVA"
+        },
+        {
+          "left": "cuenta.response.saldoDisponible",
+          "op": "gte",
+          "right": "{{entrada.monto}}"
+        }
+      ],
+      "mode": "all",
+      "sid": "CND-01"
+    },
+    {
+      "id": "retener",
+      "type": "request",
+      "key": "retener",
+      "name": "Retener fondos",
+      "desc": "Sistema de cuentas · POST /retenciones. Congela el monto (no lo debita aún) y devuelve retencionId. Idempotency-Key = referencia, para que un reintento no retenga dos veces.",
+      "x": 810.0,
+      "y": 202.0,
+      "ref": "Cuentas/Retener-fondos.yml",
+      "vars": [
+        {
+          "name": "nroCuenta",
+          "value": "{{entrada.nroCuenta}}"
+        },
+        {
+          "name": "monto",
+          "value": "{{entrada.monto}}"
+        },
+        {
+          "name": "moneda",
+          "value": "{{entrada.moneda}}"
+        },
+        {
+          "name": "referencia",
+          "value": "PAGO-{{$timestamp}}"
+        }
+      ],
+      "sid": "SRV-02"
+    },
+    {
+      "id": "ret",
+      "type": "extract",
+      "key": "ret",
+      "name": "Guardar retencionId",
+      "desc": "El valor que une los dos sistemas. El core de tarjetas sólo abona si recibe una retención válida y sin usar.",
+      "x": 550.0,
+      "y": 60.0,
+      "vars": [
+        {
+          "name": "retencionId",
+          "value": "retener.response.retencionId"
+        }
+      ],
+      "sid": "EXT-01"
+    },
+    {
+      "id": "pagar",
+      "type": "request",
+      "key": "pagar",
+      "name": "Pagar tarjeta",
+      "desc": "Core de tarjetas · POST /pagos. El monto lo toma de la retención. Responde 202 RECEIVED con transaccionId: el posteo es asíncrono. 409 si la retención no existe o ya se usó.",
+      "x": 810.0,
+      "y": 344.0,
+      "ref": "Core-tarjetas/Pagar-tarjeta.yml",
+      "vars": [
+        {
+          "name": "nroTarjeta",
+          "value": "{{entrada.nroTarjeta}}"
+        },
+        {
+          "name": "retencionId",
+          "value": "{{retencionId}}"
+        }
+      ],
+      "sid": "SRV-03"
+    },
+    {
+      "id": "tx",
+      "type": "extract",
+      "key": "tx",
+      "name": "Guardar transaccionId",
+      "desc": "Identificador del pago en el core; con él se consulta el estado contable.",
+      "x": 550.0,
+      "y": 202.0,
+      "vars": [
+        {
+          "name": "transaccionId",
+          "value": "pagar.response.transaccionId"
+        }
+      ],
+      "sid": "EXT-02"
+    },
+    {
+      "id": "detalle",
+      "type": "request",
+      "key": "detalle",
+      "name": "Detalle de transacción",
+      "desc": "Core de tarjetas · GET /transacciones/{id}. Hasta 1000 PEN: POSTED con codigoAutorizacion y fechaContable. Más de 1000: PENDING por revisión antifraude.",
+      "x": 810.0,
+      "y": 486.0,
+      "ref": "Core-tarjetas/Detalle-transaccion.yml",
+      "vars": [
+        {
+          "name": "transaccionId",
+          "value": "{{transaccionId}}"
+        }
+      ],
+      "sid": "SRV-04"
+    },
+    {
+      "id": "posteado",
+      "type": "condition",
+      "key": "posteado",
+      "name": "¿Quedó POSTED?",
+      "x": 290.0,
+      "y": 202.0,
+      "rules": [
+        {
+          "left": "detalle.response.estado",
+          "op": "eq",
+          "right": "POSTED"
+        }
+      ],
+      "sid": "CND-02"
+    },
+    {
+      "id": "ok",
+      "type": "response",
+      "key": "ok",
+      "name": "200 Pago posteado",
+      "x": 1070.0,
+      "y": 628.0,
+      "status": "200",
+      "body": {
+        "estado": "POSTED",
+        "transaccionId": "{{transaccionId}}",
+        "autorizacion": "{{detalle.response.codigoAutorizacion}}",
+        "fechaContable": "{{detalle.response.fechaContable}}",
+        "monto": "{{detalle.response.monto}}",
+        "tarjeta": "{{detalle.response.tarjeta}}",
+        "saldoRestante": "{{retener.response.saldoDisponible}}"
+      },
+      "sid": "RES-01"
+    },
+    {
+      "id": "pendiente",
+      "type": "response",
+      "key": "pendiente",
+      "name": "202 Pago pendiente",
+      "x": 1070.0,
+      "y": 770.0,
+      "status": "202",
+      "body": {
+        "estado": "PENDING",
+        "transaccionId": "{{transaccionId}}",
+        "motivo": "{{detalle.response.motivo}}",
+        "monto": "{{detalle.response.monto}}"
+      },
+      "sid": "RES-02"
+    },
+    {
+      "id": "rechazo",
+      "type": "response",
+      "key": "rechazo",
+      "name": "422 No puede pagar",
+      "x": 1070.0,
+      "y": 202.0,
+      "status": "422",
+      "body": {
+        "error": {
+          "codigo": "NO_PUEDE_PAGAR",
+          "estadoCuenta": "{{cuenta.response.estado}}",
+          "saldo": "{{cuenta.response.saldoDisponible}}"
+        }
+      },
+      "sid": "RES-03"
+    },
+    {
+      "id": "rechazo_cuenta",
+      "type": "response",
+      "key": "rechazo_cuenta",
+      "name": "Rechazo del sistema de cuentas",
+      "x": 1070.0,
+      "y": 344.0,
+      "status": "{{retener.status}}",
+      "body": {
+        "error": {
+          "codigo": "{{retener.response.codigo}}",
+          "mensaje": "{{retener.response.mensaje}}"
+        }
+      },
+      "sid": "RES-04"
+    },
+    {
+      "id": "no_existe",
+      "type": "response",
+      "key": "no_existe",
+      "name": "404 Cuenta no existe",
+      "x": 1070.0,
+      "y": 60.0,
+      "status": "404",
+      "body": {
+        "error": {
+          "codigo": "{{cuenta.response.codigo}}"
+        }
+      },
+      "sid": "RES-05"
+    },
+    {
+      "id": "falla_core",
+      "type": "response",
+      "key": "falla_core",
+      "name": "502 Falla del core",
+      "x": 1070.0,
+      "y": 486.0,
+      "status": "502",
+      "body": {
+        "error": {
+          "codigo": "CORE_TARJETAS",
+          "detalle": "{{pagar.response.codigo}}"
+        }
+      },
+      "sid": "RES-06"
+    },
+    {
+      "id": "valores",
+      "type": "note",
+      "key": "valores",
+      "name": "Valores que viajan",
+      "x": 30.0,
+      "y": 330.0,
+      "text": "entrada.nroCuenta → Consultar y Retener · entrada.monto → Retener (el core lo toma de la retención) · retencionId: Retener → Pagar · transaccionId: Pagar → Detalle · estado: Detalle → ¿POSTED?",
+      "sid": "NOT-01"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "port": "out",
+      "to": "cuenta"
+    },
+    {
+      "from": "cuenta",
+      "port": "out",
+      "to": "puede_pagar"
+    },
+    {
+      "from": "cuenta",
+      "port": "error",
+      "to": "no_existe"
+    },
+    {
+      "from": "puede_pagar",
+      "port": "true",
+      "to": "retener"
+    },
+    {
+      "from": "puede_pagar",
+      "port": "false",
+      "to": "rechazo"
+    },
+    {
+      "from": "retener",
+      "port": "out",
+      "to": "ret"
+    },
+    {
+      "from": "retener",
+      "port": "error",
+      "to": "rechazo_cuenta"
+    },
+    {
+      "from": "ret",
+      "port": "out",
+      "to": "pagar"
+    },
+    {
+      "from": "pagar",
+      "port": "out",
+      "to": "tx"
+    },
+    {
+      "from": "pagar",
+      "port": "error",
+      "to": "falla_core"
+    },
+    {
+      "from": "tx",
+      "port": "out",
+      "to": "detalle"
+    },
+    {
+      "from": "detalle",
+      "port": "out",
+      "to": "posteado"
+    },
+    {
+      "from": "detalle",
+      "port": "error",
+      "to": "falla_core"
+    },
+    {
+      "from": "posteado",
+      "port": "true",
+      "to": "ok"
+    },
+    {
+      "from": "posteado",
+      "port": "false",
+      "to": "pendiente"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [
+    {
+      "id": "PAG-001",
+      "name": "Pago chico se postea",
+      "input": {
+        "nroCuenta": "191-0001",
+        "nroTarjeta": "4111111111111111",
+        "monto": 250,
+        "moneda": "PEN"
+      },
+      "expectStatus": 200,
+      "expect": [
+        {
+          "left": "estado",
+          "op": "eq",
+          "right": "POSTED"
+        },
+        {
+          "left": "saldoRestante",
+          "op": "eq",
+          "right": "4750"
+        }
+      ]
+    },
+    {
+      "id": "PAG-002",
+      "name": "Pago grande queda pendiente",
+      "input": {
+        "nroCuenta": "191-0001",
+        "nroTarjeta": "4111111111111111",
+        "monto": 2500,
+        "moneda": "PEN"
+      },
+      "expectStatus": 202,
+      "expect": [
+        {
+          "left": "motivo",
+          "op": "eq",
+          "right": "REVISION_ANTIFRAUDE"
+        }
+      ]
+    },
+    {
+      "id": "PAG-003",
+      "name": "Saldo insuficiente",
+      "input": {
+        "nroCuenta": "191-0002",
+        "nroTarjeta": "4111111111111111",
+        "monto": 250,
+        "moneda": "PEN"
+      },
+      "expectStatus": 422,
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "rechazo"
+        }
+      ]
+    },
+    {
+      "id": "PAG-004",
+      "name": "Cuenta bloqueada",
+      "input": {
+        "nroCuenta": "191-0003",
+        "nroTarjeta": "4111111111111111",
+        "monto": 100,
+        "moneda": "PEN"
+      },
+      "expectStatus": 422,
+      "expect": [
+        {
+          "left": "error.estadoCuenta",
+          "op": "eq",
+          "right": "BLOQUEADA"
+        }
+      ]
+    },
+    {
+      "id": "PAG-005",
+      "name": "Cuenta inexistente",
+      "input": {
+        "nroCuenta": "999-9999",
+        "nroTarjeta": "4111111111111111",
+        "monto": 100,
+        "moneda": "PEN"
+      },
+      "expectStatus": 404,
+      "expect": [
+        {
+          "left": "error.codigo",
+          "op": "eq",
+          "right": "CUENTA_NO_EXISTE"
+        }
+      ]
+    },
+    {
+      "id": "PAG-006",
+      "name": "Tarjeta inexistente",
+      "input": {
+        "nroCuenta": "191-0001",
+        "nroTarjeta": "5500000000000004",
+        "monto": 100,
+        "moneda": "PEN"
+      },
+      "expectStatus": 502,
+      "expect": [
+        {
+          "left": "error.detalle",
+          "op": "eq",
+          "right": "TARJETA_NO_EXISTE"
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

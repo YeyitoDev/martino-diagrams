@@ -1,0 +1,143 @@
+nombre: json-server · relaciones y borrado
+coleccion: json-server
+inicio: [cuenta]
+nodos:
+  - clave: guia
+    tipo: nota
+    nombre: Qué explica este flujo
+    text: "Lógica interna de typicode/json-server v1 (src/service.ts). Cada paso cita el archivo y la línea. Pregunta funcional: si borro una cuenta, ¿qué pasa con sus movimientos?"
+
+  - clave: entrada
+    tipo: entrada
+    nombre: Entrada
+    desc: umbral = monto mínimo para el filtro; porPagina = tamaño de página.
+    data: { umbral: 100, porPagina: 2 }
+
+  - clave: cuenta
+    tipo: servicio
+    nombre: Crear cuenta
+    desc: "POST /cuentas (app.ts:143 → service.create, service.ts:145). Ignora cualquier id del body y genera uno aleatorio de 11 caracteres (random-id.ts: 8 bytes en base64url). Responde 201 (app.ts:164)."
+    request: { method: POST, url: "{{jsUrl}}/cuentas", bodyMode: json, body: { json: "{\"titular\": \"Ana Quispe\", \"moneda\": \"PEN\"}" } }
+    siguiente: [cid]
+
+  - clave: cid
+    tipo: extraer
+    nombre: Guardar cuentaId
+    desc: "La relación se arma por convención de nombre: <singular de la colección>Id. Para «cuentas» la llave foránea es cuentaId (service.ts:49, inflection.singularize)."
+    vars: [{ name: cuentaId, value: cuenta.response.id }]
+    siguiente: [mov_a, mov_b, mov_c]
+
+  - clave: mov_a
+    tipo: servicio
+    nombre: Movimiento 120
+    request: { method: POST, url: "{{jsUrl}}/movimientos", bodyMode: json, body: { json: "{\"cuentaId\": \"{{cuentaId}}\", \"monto\": 120, \"tipo\": \"abono\"}" } }
+    siguiente: [listar]
+  - clave: mov_b
+    tipo: servicio
+    nombre: Movimiento 2500
+    request: { method: POST, url: "{{jsUrl}}/movimientos", bodyMode: json, body: { json: "{\"cuentaId\": \"{{cuentaId}}\", \"monto\": 2500, \"tipo\": \"abono\"}" } }
+    siguiente: [listar]
+  - clave: mov_c
+    tipo: servicio
+    nombre: Movimiento 40
+    request: { method: POST, url: "{{jsUrl}}/movimientos", bodyMode: json, body: { json: "{\"cuentaId\": \"{{cuentaId}}\", \"monto\": 40, \"tipo\": \"cargo\"}" } }
+    siguiente: [listar]
+
+  - clave: listar
+    tipo: servicio
+    nombre: Filtrar y ordenar
+    desc: "GET /movimientos?cuentaId=…&monto:gt=…&_sort=-monto. parse-where.ts:7 separa campo y operador por el último «:» (también acepta monto_gt); coerceValue (parse-where.ts:45) convierte «100» en número. _sort con «-» ordena descendente (service.ts:135)."
+    request: { method: GET, url: "{{jsUrl}}/movimientos?cuentaId={{cuentaId}}&monto:gt={{entrada.umbral}}&_sort=-monto" }
+    siguiente: [paginar]
+
+  - clave: paginar
+    tipo: servicio
+    nombre: Paginar
+    desc: "Con _page la respuesta deja de ser una lista y pasa a ser {first, prev, next, last, pages, items, data} (service.ts:139). Una página fuera de rango no da error: se ajusta a la última (paginate.ts:18). Sin _per_page usa 10."
+    request: { method: GET, url: "{{jsUrl}}/movimientos?cuentaId={{cuentaId}}&_page=1&_per_page={{entrada.porPagina}}" }
+    siguiente: [embed]
+
+  - clave: embed
+    tipo: servicio
+    nombre: Cuenta con sus movimientos
+    desc: "GET /cuentas/{id}?_embed=movimientos. embed (service.ts:23): como «movimientos» es plural, busca los que tengan cuentaId = id y los pega como lista."
+    request: { method: GET, url: "{{jsUrl}}/cuentas/{{cuentaId}}?_embed=movimientos" }
+    siguiente: [borrar]
+
+  - clave: borrar
+    tipo: servicio
+    nombre: Borrar la cuenta
+    desc: "DELETE /cuentas/{id} (app.ts:153 → destroyById, service.ts:202). No borra los movimientos: nullifyForeignKey (service.ts:49) les pone cuentaId = null en TODAS las colecciones."
+    request: { method: DELETE, url: "{{jsUrl}}/cuentas/{{cuentaId}}" }
+    siguiente: [huerfano]
+
+  - clave: huerfano
+    tipo: servicio
+    nombre: El movimiento sigue vivo
+    desc: El movimiento de 120 sigue existiendo, ahora con cuentaId null (huérfano).
+    request: { method: GET, url: "{{jsUrl}}/movimientos/{{mov_a.response.id}}" }
+    siguiente: [cuenta2]
+
+  - clave: cuenta2
+    tipo: servicio
+    nombre: Crear otra cuenta
+    request: { method: POST, url: "{{jsUrl}}/cuentas", bodyMode: json, body: { json: "{\"titular\": \"Luis Huamán\", \"moneda\": \"PEN\"}" } }
+    siguiente: [mov_d]
+
+  - clave: mov_d
+    tipo: servicio
+    nombre: Movimiento de la otra cuenta
+    request: { method: POST, url: "{{jsUrl}}/movimientos", bodyMode: json, body: { json: "{\"cuentaId\": \"{{cuenta2.response.id}}\", \"monto\": 75, \"tipo\": \"abono\"}" } }
+    siguiente: [borrar2]
+
+  - clave: borrar2
+    tipo: servicio
+    nombre: Borrar en cascada
+    desc: "DELETE /cuentas/{id}?_dependent=movimientos. deleteDependents (service.ts:67) no filtra por la cuenta borrada: elimina todo movimiento con cuentaId null, también los huérfanos de cuentas borradas antes."
+    request: { method: DELETE, url: "{{jsUrl}}/cuentas/{{cuenta2.response.id}}?_dependent=movimientos" }
+    siguiente: [huerfano2]
+
+  - clave: huerfano2
+    tipo: servicio
+    nombre: ¿Sobrevive el huérfano?
+    desc: "Se pide otra vez el movimiento de 120 (de la primera cuenta). Si responde 404 (app.ts:162), la cascada de la segunda cuenta lo borró."
+    request: { method: GET, url: "{{jsUrl}}/movimientos/{{mov_a.response.id}}" }
+    siguiente: [resumen]
+    error: [resumen]
+
+  - clave: resumen
+    tipo: transformar
+    nombre: Resumen de hallazgos
+    code: |-
+      return {
+        filtrados: nodes.listar.response.length,
+        orden: nodes.listar.response.map(m => m.monto).join(" > "),
+        paginas: nodes.paginar.response.pages,
+        siguientePagina: nodes.paginar.response.next,
+        embebidos: nodes.embed.response.movimientos.length,
+        cuentaIdTrasBorrar: nodes.huerfano.response.cuentaId,
+        largoDelId: nodes.cuenta.response.id.length,
+        huerfanoSobreviveCascadaAjena: nodes.huerfano2.status === 200
+      }
+    siguiente: [fin]
+
+  - clave: fin
+    tipo: respuesta
+    nombre: 200 Hallazgos
+    status: "200"
+    body: "{{resumen}}"
+
+casos:
+  - id: JS-001
+    name: Umbral 100, páginas de 2
+    input: { umbral: 100, porPagina: 2 }
+    expectStatus: 200
+    expect:
+      - { left: filtrados, op: eq, right: "2" }
+      - { left: orden, op: eq, right: "2500 > 120" }
+      - { left: paginas, op: eq, right: "2" }
+      - { left: embebidos, op: eq, right: "3" }
+      - { left: cuentaIdTrasBorrar, op: isNull, right: "" }
+      - { left: largoDelId, op: eq, right: "11" }
+      - { left: huerfanoSobreviveCascadaAjena, op: eq, right: "false" }
+# Un solo caso a propósito: los casos corren en paralelo y la cascada de uno borraría los huérfanos del otro.

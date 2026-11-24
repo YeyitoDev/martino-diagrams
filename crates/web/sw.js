@@ -1,5 +1,5 @@
 // Network-first: cachea SOLO la interfaz; /api/* nunca pasa por la caché.
-const CACHE = 'martino-v1';
+const CACHE = 'martino-v2';
 const SHELL = ['/', '/index.html', '/styles.css', '/martino-web.js', '/martino-web_bg.wasm', '/manifest.webmanifest',
   '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png', '/icons/apple-touch-icon.png'];
 
@@ -15,9 +15,10 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request)
       .then((r) => {
-        if (r.ok && SHELL.includes(url.pathname)) caches.open(CACHE).then((c) => c.put(e.request, r.clone()));
+        // El clon se saca antes de devolver la respuesta: después su cuerpo ya se leyó y la copia nunca se actualizaba.
+        if (r.ok && SHELL.includes(url.pathname)) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(url.pathname, copy)); }
         return r;
       })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('/index.html')))
+      .catch(() => caches.match(url.pathname).then((r) => r || caches.match('/index.html')))
   );
 });

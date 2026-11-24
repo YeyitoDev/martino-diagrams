@@ -1,0 +1,19 @@
+info:
+  name: Pagar tarjeta
+  id: TJ-001
+  type: http
+  seq: 1
+http:
+  method: POST
+  url: "{{tarjetasUrl}}/pagos"
+  body:
+    type: json
+    data: |-
+      {
+        "nroTarjeta": "{{nroTarjeta}}",
+        "retencionId": "{{retencionId}}"
+      }
+docs: |
+  Core de tarjetas. Abona a la tarjeta el monto de la retención (el monto sale de la retención, no del body).
+  Responde 202 RECEIVED con transaccionId: el pago es asíncrono. Hasta 1000 se postea al instante (POSTED);
+  más de 1000 queda PENDING por revisión antifraude. 404 TARJETA_NO_EXISTE, 409 RETENCION_INVALIDA (no existe o ya se usó).

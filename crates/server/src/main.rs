@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+mod mcp;
+
 #[derive(Parser)]
 #[command(name = "martino", about = "Martino: cliente HTTP local con flujos visuales")]
 struct Cli {
@@ -51,6 +53,8 @@ enum Cmd {
         #[arg(long)]
         id: Option<String>,
     },
+    /// Servidor MCP por stdio: deja que un agente (Claude, Cursor…) lea, cree y ejecute flujos
+    Mcp,
     /// Importa una colección o entorno Postman v2.1
     ImportPostman {
         file: PathBuf,
@@ -113,6 +117,52 @@ fn import_problems(core: &Core, flow: &martino_core::flow::Flow) -> Vec<String> 
     out
 }
 
+/// Valida, ordena y guarda un flujo escrito en YAML. Devuelve el id.
+fn import_flow(core: &Core, src: &str, id: Option<String>) -> Result<String, String> {
+    let mut flow = martino_core::flow_yaml::flow_from_yaml(src)?;
+    let problems = import_problems(core, &flow);
+    if !problems.is_empty() {
+        return Err(format!("El flujo no se puede ejecutar así:\n  - {}", problems.join("\n  - ")));
+    }
+    // Sin `pos`, cada paso va al carril de su etapa, como el botón «Ordenar» de la UI (260 de ancho, 142 de alto).
+    if flow.nodes.iter().all(|n| n.x == 0.0 && n.y == 0.0) {
+        martino_core::layout::arrange(&mut flow, 260.0, 142.0);
+    }
+    martino_core::layout::assign_codes(&mut flow);
+    match id {
+        Some(id) => core.flows.put(&id, &flow).map(|_| id),
+        None => core.flows.create(&flow),
+    }
+}
+
+/// Una línea legible por evento de ejecución (paso o resultado); `true` si es un resultado que no dio OK.
+fn run_line(v: &Value) -> Option<(String, bool)> {
+    match v["type"].as_str() {
+        Some("node") => {
+            let s = &v["step"];
+            let mark = if s["ok"] == json!(true) { "✓" } else { "✗" };
+            let st = s["out"]["status"].as_u64().map(|x| format!(" {x}")).unwrap_or_default();
+            let err = s["error"].as_str().map(|e| format!("  {e}")).unwrap_or_default();
+            Some((format!("  {mark} {} ({}){st} {}ms{err}", s["key"].as_str().unwrap_or(""), s["kind"].as_str().unwrap_or(""), s["ms"]), false))
+        }
+        Some("done") | Some("case") => {
+            let r = &v["result"];
+            let verdict = r["verdict"].as_str().unwrap_or("?");
+            let who = v["caseId"].as_str().map(|c| format!("[{c}] ")).unwrap_or_default();
+            let mut out = vec![format!("{who}{verdict} · status {} · {}ms", r["status"], r["ms"])];
+            out.extend(r["error"].as_str().map(|e| format!("  {e}")));
+            for c in r["checks"].as_array().into_iter().flatten().filter(|c| c["ok"] != json!(true)) {
+                out.push(format!("  ≠ {} {} {} · real {}", c["left"].as_str().unwrap_or(""), c["op"].as_str().unwrap_or(""), c["right"].as_str().unwrap_or(""), c["actual"]));
+            }
+            for d in r["compare"]["diffs"].as_array().into_iter().flatten() {
+                out.push(format!("  ≠ {} ({}): esperado {} · real {}", d["path"].as_str().unwrap_or(""), d["kind"].as_str().unwrap_or(""), d["expected"], d["actual"]));
+            }
+            Some((out.join("\n"), verdict != "OK"))
+        }
+        _ => None,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -149,30 +199,13 @@ async fn main() {
             });
             let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let f2 = failed.clone();
-            let emit: Arc<dyn Fn(Value) + Send + Sync> = Arc::new(move |v: Value| match v["type"].as_str() {
-                Some("node") => {
-                    let s = &v["step"];
-                    let mark = if s["ok"] == json!(true) { "✓" } else { "✗" };
-                    let st = s["out"]["status"].as_u64().map(|x| format!(" {x}")).unwrap_or_default();
-                    let err = s["error"].as_str().map(|e| format!("  {e}")).unwrap_or_default();
-                    println!("  {mark} {} ({}){st} {}ms{err}", s["key"].as_str().unwrap_or(""), s["kind"].as_str().unwrap_or(""), s["ms"]);
-                }
-                Some("done") | Some("case") => {
-                    let r = &v["result"];
-                    let verdict = r["verdict"].as_str().unwrap_or("?");
-                    let who = v["caseId"].as_str().map(|c| format!("[{c}] ")).unwrap_or_default();
-                    println!("{who}{verdict} · status {} · {}ms", r["status"], r["ms"]);
-                    if let Some(e) = r["error"].as_str() {
-                        println!("  {e}");
-                    }
-                    for d in r["compare"]["diffs"].as_array().into_iter().flatten() {
-                        println!("  ≠ {} ({}): esperado {} · real {}", d["path"].as_str().unwrap_or(""), d["kind"].as_str().unwrap_or(""), d["expected"], d["actual"]);
-                    }
-                    if verdict != "OK" {
+            let emit: Arc<dyn Fn(Value) + Send + Sync> = Arc::new(move |v: Value| {
+                if let Some((line, bad)) = run_line(&v) {
+                    println!("{line}");
+                    if bad {
                         f2.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
                 }
-                _ => {}
             });
             let body = FlowRunBody { env, compare, input, cases: if cases { vec!["*".into()] } else { vec![] }, ..Default::default() };
             println!("▶ {} ({id})", flow.name);
@@ -186,23 +219,12 @@ async fn main() {
         Cmd::FlowImport { file, id } => {
             let core = Core::new(Config::load(&root, json!({})));
             let src = if file.as_os_str() == "-" { std::io::read_to_string(std::io::stdin()) } else { std::fs::read_to_string(&file) };
-            let mut flow = martino_core::flow_yaml::flow_from_yaml(&src.unwrap_or_else(|e| die(format!("{}: {e}", file.display())))).unwrap_or_else(|e| die(e));
-            let problems = import_problems(&core, &flow);
-            if !problems.is_empty() {
-                die(format!("El flujo no se puede ejecutar así:\n  - {}", problems.join("\n  - ")));
-            }
-            // Sin `pos`, cada paso va al carril de su etapa, como el botón «Ordenar» de la UI (260 de ancho, 142 de alto).
-            if flow.nodes.iter().all(|n| n.x == 0.0 && n.y == 0.0) {
-                martino_core::layout::arrange(&mut flow, 260.0, 142.0);
-            }
-            martino_core::layout::assign_codes(&mut flow);
-            let id = match id {
-                Some(id) => core.flows.put(&id, &flow).map(|_| id),
-                None => core.flows.create(&flow),
-            }
-            .unwrap_or_else(|e| die(e));
+            let src = src.unwrap_or_else(|e| die(format!("{}: {e}", file.display())));
+            let id = import_flow(&core, &src, id).unwrap_or_else(|e| die(e));
+            let flow = core.flows.get(&id).unwrap_or_else(|e| die(e));
             println!("✓ flows/{id}.flow.json ({} pasos, {} casos)\n  Ejecútalo: martino flow {id} --cases", flow.nodes.len(), flow.cases.len());
         }
+        Cmd::Mcp => mcp::serve(Core::new(Config::load(&root, json!({})))).await,
         Cmd::ImportPostman { file, name, collection } => {
             let core = Core::new(Config::load(&root, json!({})));
             let v: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap_or_else(|e| die(e))).unwrap_or_else(|e| die(e));

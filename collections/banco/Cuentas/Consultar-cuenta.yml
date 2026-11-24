@@ -1,0 +1,11 @@
+info:
+  name: Consultar cuenta
+  id: CTA-001
+  type: http
+  seq: 1
+http:
+  method: GET
+  url: "{{cuentasUrl}}/cuentas/{{nroCuenta}}"
+docs: |
+  Sistema de cuentas. Devuelve titular, moneda, saldoDisponible y estado (ACTIVA | BLOQUEADA).
+  404 CUENTA_NO_EXISTE si el número no existe. No mueve dinero.

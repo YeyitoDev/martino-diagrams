@@ -55,7 +55,7 @@ pub fn sentence(f: &Flow, n: &Node) -> String {
 }
 
 /// Lo que dejó un paso al ejecutarse, corto: «200 · 184 ms», «falló: …».
-fn brief(st: &Value) -> String {
+pub fn brief(st: &Value) -> String {
     let ms = st["ms"].as_u64().unwrap_or(0);
     if st["ok"] != Value::Bool(true) {
         return format!("falló: {}", st["error"].as_str().unwrap_or("error"));
@@ -71,17 +71,28 @@ pub fn in_lanes(f: &Flow) -> bool {
     f.nodes.iter().filter(|n| !martino_core::flow::is_annotation(&n.kind)).all(|n| ((n.x + crate::flows::W / 2.0) / LANE_W).floor() as i64 == stage(&n.kind) as i64)
 }
 
-/// Carriles de fondo del lienzo, uno por etapa; sólo cuando el flujo está ordenado por etapas.
+/// Carriles de fondo del lienzo: columnas por etapa o filas por sistema, según cómo esté ordenado.
 #[component]
 pub fn Lanes() -> impl IntoView {
     let ed = ed();
-    move || ed.flow.with(in_lanes).then(|| view! {
-        <div class="flanes" aria-hidden="true">
-            {STAGES.iter().enumerate().map(|(i, s)| view! {
-                <div class="flane" style=format!("left:{}px;width:{}px", i as f64 * LANE_W, LANE_W)><span>{format!("{:02} {s}", i + 1)}</span></div>
-            }).collect_view()}
-        </div>
-    })
+    move || {
+        if ed.flow.with(in_lanes) {
+            return Some(view! {
+                <div class="flanes" aria-hidden="true">
+                    {STAGES.iter().enumerate().map(|(i, s)| view! {
+                        <div class="flane" style=format!("left:{}px;width:{}px", i as f64 * LANE_W, LANE_W)><span>{format!("{:02} {s}", i + 1)}</span></div>
+                    }).collect_view()}
+                </div>
+            }.into_any());
+        }
+        ed.flow.with(martino_core::layout::in_system_lanes).then(|| view! {
+            <div class="fsys" aria-hidden="true">
+                {ed.flow.with(|f| martino_core::layout::system_layout(f).0).into_iter().map(|(name, top, h)| view! {
+                    <div class="fsys-l" style=format!("top:{top}px;height:{h}px")><span>{name}</span></div>
+                }).collect_view()}
+            </div>
+        }.into_any())
+    }
 }
 
 /// El gato cuenta qué pasó: mientras corre, el último paso; al terminar, el resultado.

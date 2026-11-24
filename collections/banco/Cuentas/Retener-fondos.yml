@@ -1,0 +1,22 @@
+info:
+  name: Retener fondos
+  id: CTA-002
+  type: http
+  seq: 2
+http:
+  method: POST
+  url: "{{cuentasUrl}}/cuentas/{{nroCuenta}}/retenciones"
+  headers:
+    - name: Idempotency-Key
+      value: "{{referencia}}"
+  body:
+    type: json
+    data: |-
+      {
+        "monto": {{monto}},
+        "moneda": "{{moneda}}",
+        "referencia": "{{referencia}}"
+      }
+docs: |
+  Congela el monto en la cuenta (todavía no lo debita). Devuelve 201 con retencionId, que el core de
+  tarjetas exige para abonar. Errores: 423 CUENTA_BLOQUEADA, 422 SALDO_INSUFICIENTE, 400 MONTO_INVALIDO.

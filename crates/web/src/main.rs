@@ -2,6 +2,7 @@ mod api;
 mod cases;
 mod flow_panels;
 mod flow_steps;
+mod flow_scenario;
 mod flow_story;
 mod home;
 mod flow_inspector;

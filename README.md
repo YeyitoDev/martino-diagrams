@@ -234,6 +234,17 @@ martino flow gratis--duelo-pokemon --env publico --cases
 
 > Las llaves del flujo de pago son **de prueba** y están en sus Variables. No las uses para nada real.
 
+### Casos de uso con servicios locales
+
+| Flujo | Qué muestra | Cómo levantar el servicio |
+|---|---|---|
+| **Pago de tarjeta desde cuenta** (`banco--pago-tarjeta`) | Integración de dos sistemas: consulta y retención en **cuentas** → pago en el **core de tarjetas** → detalle **POSTED** (200) o **PENDING** (202). Cada paso explica su regla y una nota muestra qué valores viajan (`retencionId`, `transaccionId`). 6 casos. | `python3 ejemplos/banco/simulador.py` (puerto 4500), entorno **local** |
+| **json-server · relaciones y borrado** (`json-server--relaciones-y-borrado`) | La lógica interna de [typicode/json-server](https://github.com/typicode/json-server) contada como flujo, con `archivo:línea` en cada paso: filtros con operador, paginación, `_embed` y el borrado en cascada que también se lleva huérfanos de otras cuentas. | `npx json-server@1.0.0-beta.15 db.json --port 4600` con `{"cuentas":[],"movimientos":[]}`, entorno **local** |
+
+```bash
+martino flow banco--pago-tarjeta --env local --cases
+```
+
 ---
 
 ## Línea de comandos
@@ -246,9 +257,18 @@ martino --root ./mi-proyecto serve        # carpeta de trabajo explícita
 martino flow <id> [--env dev] [--input entrada.json] [--compare]
 martino flow <id> --cases                 # todos los casos QA; exit 1 si falla alguno
 
+martino flow-yaml <id>                    # el flujo en YAML
+martino flow-import flujo.yml [--id x]    # crea o reemplaza un flujo desde YAML
+martino mcp                               # servidor MCP por stdio para agentes
+
 martino import-postman coleccion.json [--name Nombre]
 martino import-postman entorno.json --collection demo
 ```
+
+**Agentes (MCP):** el repo trae `.mcp.json`, así que Claude Code abierto aquí ve las herramientas `martino_*`:
+listar colecciones, leer una petición, escribir un flujo en YAML, ejecutarlo con sus casos y leer la guía. Un analista
+le pide «explícame este servicio» y el agente devuelve un flujo con cada paso documentado, que se ve como flujograma en la UI.
+La skill `.claude/skills/martino-flujo` le dice cómo hacerlo.
 
 Ejemplo en CI (GitHub Actions):
 

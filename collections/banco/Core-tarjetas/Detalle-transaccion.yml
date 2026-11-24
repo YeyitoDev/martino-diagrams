@@ -1,0 +1,11 @@
+info:
+  name: Detalle de transacción
+  id: TJ-002
+  type: http
+  seq: 2
+http:
+  method: GET
+  url: "{{tarjetasUrl}}/transacciones/{{transaccionId}}"
+docs: |
+  Estado contable de la transacción: POSTED (con codigoAutorizacion y fechaContable) o PENDING (con motivo).
+  La tarjeta viene enmascarada (4111 **** **** 1111).
