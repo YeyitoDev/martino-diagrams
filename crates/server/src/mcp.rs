@@ -1,6 +1,6 @@
 //! Servidor MCP (JSON-RPC por stdio, una línea por mensaje): las mismas operaciones que la CLI,
 //! para que un agente explore colecciones, escriba flujos en YAML y los ejecute.
-use martino::app::{flow_job, FlowRunBody};
+use martino::app::{flow_job, run_item, FlowRunBody, RunItem};
 use martino::state::Core;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
@@ -22,6 +22,10 @@ fn tools() -> Value {
         {"name": "martino_ejecutar_flujo", "description": "Ejecuta un flujo (o todos sus casos QA) y devuelve cada paso con status, tiempo y error; con detalle, también lo que respondió cada paso.",
          "inputSchema": s(json!({"id": {"type": "string"}, "entorno": {"type": "string"}, "entrada": {"type": "object"},
                                   "casos": {"type": "boolean"}, "detalle": {"type": "boolean"}}), &["id"])},
+        {"name": "martino_enviar", "description": "Envía una petición HTTP (cURL o YAML de petición) y la guarda en una colección, que se crea si no existe. Si ya hay una con el mismo nombre en esa carpeta, la actualiza. Usa {{variables}} del entorno para tokens y claves: lo que mandes queda escrito en la colección.",
+         "inputSchema": s(json!({"coleccion": {"type": "string", "description": "id o nombre; si no existe, se crea"}, "carpeta": {"type": "string"},
+                                  "nombre": {"type": "string"}, "curl": {"type": "string"}, "peticion": {"type": "string", "description": "YAML como el de martino_peticion"},
+                                  "entorno": {"type": "string"}}), &["coleccion"])},
         {"name": "martino_guia", "description": "Guía completa del YAML de flujos: tipos de paso, operadores, casos QA y errores típicos. Léela antes de escribir un flujo.",
          "inputSchema": s(json!({}), &[])}
     ])
@@ -66,6 +70,48 @@ async fn call(core: &Arc<Core>, name: &str, a: &Value) -> Result<String, String>
             let text = lines.lock().unwrap().join("\n");
             Ok(text)
         }
+        "martino_enviar" => {
+            let mut r = match (a["curl"].as_str(), a["peticion"].as_str()) {
+                (Some(c), _) => martino_core::curl::parse_curl(c)?,
+                (None, Some(y)) => martino_core::yaml_req::parse_request(y)?,
+                _ => return Err("falta «curl» o «peticion»".into()),
+            };
+            // Sin nombre: «MÉTODO /ruta» (el del cURL sería sólo el último tramo, p. ej. «1»).
+            if let Some(n) = a["nombre"].as_str().filter(|n| !n.trim().is_empty()) {
+                r.name = n.trim().into();
+            } else {
+                let path = r.url.split("://").last().unwrap_or(&r.url).splitn(2, '/').nth(1).unwrap_or("").split('?').next().unwrap_or("");
+                r.name = format!("{} /{path}", r.method.to_uppercase());
+            }
+            let col_arg = arg("coleccion")?;
+            let col = match core.store.list().into_iter().find(|c| c.id == col_arg || c.name == col_arg) {
+                Some(c) => c.id,
+                None => core.store.create_collection(&col_arg)?,
+            };
+            let folder = a["carpeta"].as_str().unwrap_or("").trim_matches('/').to_string();
+            let it = RunItem { collection: col.clone(), request: Some(r.clone()), env: a["entorno"].as_str().map(String::from), ..Default::default() };
+            let res = run_item(core, &it, &Default::default()).await;
+            // Misma carpeta y nombre: se actualiza (el agente suele repetir la llamada mientras prueba).
+            let same = format!("{}{}{}", if folder.is_empty() { String::new() } else { format!("{folder}/") }, martino::store::slug(&r.name), martino_core::yaml_req::EXT);
+            let path = match core.store.read_request(&col, &same) {
+                Ok(old) => {
+                    (r.id, r.seq) = (old.id, old.seq);
+                    core.store.write_request(&col, &same, &r).map(|_| same)?
+                }
+                Err(_) => core.store.create_request(&col, &folder, &r)?,
+            };
+            let mut out = vec![format!("✓ guardada en {col}/{path}")];
+            match &res.error {
+                Some(e) => out.push(format!("✗ {e}")),
+                None => out.push(format!("{} {} · {} ms · {} bytes", res.status.unwrap_or(0), res.status_text, res.time_ms, res.size)),
+            }
+            if !res.missing.is_empty() {
+                out.push(format!("variables sin valor: {}", res.missing.join(", ")));
+            }
+            // shortcut: corta el body a 1500 caracteres para no llenar el contexto del agente.
+            out.extend((!res.body.is_empty()).then(|| res.body.chars().take(1500).collect::<String>()));
+            Ok(out.join("\n"))
+        }
         "martino_guia" => Ok(GUIDE.into()),
         _ => Err(format!("herramienta desconocida: {name}")),
     }
@@ -105,5 +151,24 @@ pub async fn serve(core: Arc<Core>) {
             let _ = writeln!(out, "{r}");
             let _ = out.flush();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use martino::config::Config;
+
+    #[tokio::test]
+    async fn enviar_crea_la_coleccion_y_no_duplica() {
+        let d = tempfile::tempdir().unwrap();
+        let core = Core::new(Config::load(d.path(), json!({})));
+        let a = json!({"coleccion": "Agente", "carpeta": "Usuarios", "curl": "curl http://127.0.0.1:9/users/1?x=1"});
+        for _ in 0..2 {
+            let t = call(&core, "martino_enviar", &a).await.unwrap();
+            assert!(t.starts_with("✓ guardada en Agente/Usuarios/") && t.contains("✗"), "{t}");
+        }
+        let col = core.store.list().into_iter().find(|c| c.name == "Agente").expect("colección creada");
+        assert_eq!(col.items[0].items.len(), 1, "la segunda vez actualiza, no duplica");
     }
 }

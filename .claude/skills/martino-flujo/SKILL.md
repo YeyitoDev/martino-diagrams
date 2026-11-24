@@ -13,7 +13,9 @@ con sus casos QA. No termines hasta que `martino flow <id> --cases` salga con c�
 
 Si tienes las herramientas MCP `martino_*` (servidor `martino mcp`, registrado en `.mcp.json`), úsalas en vez de la CLI:
 `martino_listar`, `martino_peticion`, `martino_flujo` (= `flow-yaml`), `martino_importar_flujo` (= `flow-import`),
-`martino_ejecutar_flujo` (= `flow`, con `detalle: true` ves lo que respondió cada paso) y `martino_guia` (esta guía).
+`martino_ejecutar_flujo` (= `flow`, con `detalle: true` ves lo que respondió cada paso) `martino_enviar` (envía un cURL o una petición en YAML y la guarda en una colección, que crea si no existe; misma carpeta y nombre = la actualiza)
+y `martino_guia` (esta guía). Si la colección que necesitas no existe, ármala con `martino_enviar`: una llamada por endpoint,
+con `nombre` claro y tokens como `{{variables}}` del entorno, nunca escritos en la petición.
 
 - Binario: `martino` en el PATH, o `./target/release/martino` dentro del repo (`cargo build --release -p martino`).
 - Carpeta de trabajo (`--root`): la que tiene `collections/` y `flows/`. En el repo es `.`.

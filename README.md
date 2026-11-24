@@ -266,7 +266,7 @@ martino import-postman entorno.json --collection demo
 ```
 
 **Agentes (MCP):** el repo trae `.mcp.json`, así que Claude Code abierto aquí ve las herramientas `martino_*`:
-listar colecciones, leer una petición, escribir un flujo en YAML, ejecutarlo con sus casos y leer la guía. Un analista
+listar colecciones, leer una petición, enviar peticiones (cada una queda guardada en una colección, que se crea si no existe), escribir un flujo en YAML, ejecutarlo con sus casos y leer la guía. Un analista
 le pide «explícame este servicio» y el agente devuelve un flujo con cada paso documentado, que se ve como flujograma en la UI.
 La skill `.claude/skills/martino-flujo` le dice cómo hacerlo.
 
