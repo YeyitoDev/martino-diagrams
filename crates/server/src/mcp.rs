@@ -26,6 +26,8 @@ fn tools() -> Value {
          "inputSchema": s(json!({"coleccion": {"type": "string", "description": "id o nombre; si no existe, se crea"}, "carpeta": {"type": "string"},
                                   "nombre": {"type": "string"}, "curl": {"type": "string"}, "peticion": {"type": "string", "description": "YAML como el de martino_peticion"},
                                   "entorno": {"type": "string"}}), &["coleccion"])},
+        {"name": "martino_casos_endpoint", "description": "Crea una carpeta «<endpoint> · casos» con un caso de prueba por petición y los ejecuta. Mandas sólo un YAML:\ncoleccion: banco\nendpoint: Cuentas/Retener-fondos.yml   # petición guardada (o curl: \"curl …\")\nentorno: local                      # opcional\ncarpeta: Cuentas/Retener fondos · casos   # opcional\ncasos:\n  - nombre: Monto válido\n    datos: {nroCuenta: \"001\", monto: 250}   # valores de sus {{variables}}\n    espera: {status: 201, body.retencionId: isDefined}   # campo: valor | operador valor (eq, neq, gt, contains, isDefined…)\nVolver a mandarlo actualiza los casos con el mismo nombre.",
+         "inputSchema": s(json!({"yaml": {"type": "string"}}), &["yaml"])},
         {"name": "martino_guia", "description": "Guía completa del YAML de flujos: tipos de paso, operadores, casos QA y errores típicos. Léela antes de escribir un flujo.",
          "inputSchema": s(json!({}), &[])}
     ])
@@ -83,23 +85,11 @@ async fn call(core: &Arc<Core>, name: &str, a: &Value) -> Result<String, String>
                 let path = r.url.split("://").last().unwrap_or(&r.url).splitn(2, '/').nth(1).unwrap_or("").split('?').next().unwrap_or("");
                 r.name = format!("{} /{path}", r.method.to_uppercase());
             }
-            let col_arg = arg("coleccion")?;
-            let col = match core.store.list().into_iter().find(|c| c.id == col_arg || c.name == col_arg) {
-                Some(c) => c.id,
-                None => core.store.create_collection(&col_arg)?,
-            };
+            let col = collection_id(core, &arg("coleccion")?)?;
             let folder = a["carpeta"].as_str().unwrap_or("").trim_matches('/').to_string();
             let it = RunItem { collection: col.clone(), request: Some(r.clone()), env: a["entorno"].as_str().map(String::from), ..Default::default() };
             let res = run_item(core, &it, &Default::default()).await;
-            // Misma carpeta y nombre: se actualiza (el agente suele repetir la llamada mientras prueba).
-            let same = format!("{}{}{}", if folder.is_empty() { String::new() } else { format!("{folder}/") }, martino::store::slug(&r.name), martino_core::yaml_req::EXT);
-            let path = match core.store.read_request(&col, &same) {
-                Ok(old) => {
-                    (r.id, r.seq) = (old.id, old.seq);
-                    core.store.write_request(&col, &same, &r).map(|_| same)?
-                }
-                Err(_) => core.store.create_request(&col, &folder, &r)?,
-            };
+            let path = save(core, &col, &folder, r)?;
             let mut out = vec![format!("✓ guardada en {col}/{path}")];
             match &res.error {
                 Some(e) => out.push(format!("✗ {e}")),
@@ -112,9 +102,81 @@ async fn call(core: &Arc<Core>, name: &str, a: &Value) -> Result<String, String>
             out.extend((!res.body.is_empty()).then(|| res.body.chars().take(1500).collect::<String>()));
             Ok(out.join("\n"))
         }
+        "martino_casos_endpoint" => endpoint_cases(core, &arg("yaml")?).await,
         "martino_guia" => Ok(GUIDE.into()),
         _ => Err(format!("herramienta desconocida: {name}")),
     }
+}
+
+/// Id de la colección por id o nombre; si no existe, la crea.
+fn collection_id(core: &Core, name: &str) -> Result<String, String> {
+    match core.store.list().into_iter().find(|c| c.id == name || c.name == name) {
+        Some(c) => Ok(c.id),
+        None => core.store.create_collection(name),
+    }
+}
+
+/// Guarda la petición en la carpeta; si ya hay una con el mismo nombre, la actualiza (conserva código y orden).
+fn save(core: &Core, col: &str, folder: &str, mut r: martino_core::model::Request) -> Result<String, String> {
+    let same = format!("{}{}{}", if folder.is_empty() { String::new() } else { format!("{folder}/") }, martino::store::slug(&r.name), martino_core::yaml_req::EXT);
+    match core.store.read_request(col, &same) {
+        Ok(old) => {
+            (r.id, r.seq) = (old.id, old.seq);
+            core.store.write_request(col, &same, &r).map(|_| same)
+        }
+        Err(_) => core.store.create_request(col, folder, &r),
+    }
+}
+
+/// Un caso = copia del endpoint con sus `datos` como vars de la petición y `espera` como asserts.
+async fn endpoint_cases(core: &Arc<Core>, src: &str) -> Result<String, String> {
+    let y: Value = serde_yaml::from_str(src).map_err(|e| format!("YAML inválido: {e}"))?;
+    let text = |v: &Value| v.as_str().map(String::from).unwrap_or_else(|| v.to_string());
+    let col = collection_id(core, y["coleccion"].as_str().ok_or("falta «coleccion»")?)?;
+    let (base, parent) = match (y["endpoint"].as_str(), y["curl"].as_str()) {
+        (Some(p), _) => (core.store.read_request(&col, p)?, p.rsplit_once('/').map(|x| x.0).unwrap_or("").to_string()),
+        (None, Some(c)) => (martino_core::curl::parse_curl(c)?, String::new()),
+        _ => return Err("falta «endpoint» (ruta de una petición guardada) o «curl»".into()),
+    };
+    let name = if base.name.is_empty() { "Endpoint".to_string() } else { base.name.clone() };
+    let folder = match y["carpeta"].as_str() {
+        Some(f) => f.trim_matches('/').to_string(),
+        None => [parent.as_str(), &format!("{name} · casos")].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join("/"),
+    };
+    let cases = y["casos"].as_array().filter(|c| !c.is_empty()).ok_or("falta «casos» (al menos uno)")?;
+    let env = y["entorno"].as_str().map(String::from);
+    let mut out = vec![format!("Casos de {name} en {col}/{folder}")];
+    let mut failed = 0;
+    for (i, c) in cases.iter().enumerate() {
+        let mut r = base.clone();
+        r.name = format!("CP-{:02} · {}", i + 1, c["nombre"].as_str().unwrap_or("caso"));
+        r.docs = format!("Caso de prueba de «{name}». {}", c["desc"].as_str().unwrap_or("")).trim().to_string();
+        let pairs = |v: &Value, f: &dyn Fn(&Value) -> String| v.as_object().into_iter().flatten().map(|(k, v)| martino_core::model::Pair::new(k, &f(v))).collect::<Vec<_>>();
+        let datos = pairs(&c["datos"], &text);
+        r.vars_pre.retain(|p| !datos.iter().any(|d| d.name == p.name));
+        r.vars_pre.extend(datos);
+        // `status: 201` → `eq 201`: Bruno guarda operador y valor por separado.
+        r.asserts = pairs(&c["espera"], &|v| {
+            let (op, val) = martino_core::flow::split_assert(&text(v));
+            format!("{op} {val}").trim().to_string()
+        });
+        if r.asserts.is_empty() {
+            return Err(format!("casos[{i}]: falta «espera» (p. ej. status: 200)"));
+        }
+        let it = RunItem { collection: col.clone(), request: Some(r.clone()), env: env.clone(), ..Default::default() };
+        let res = run_item(core, &it, &Default::default()).await;
+        let path = save(core, &col, &folder, r.clone())?;
+        let ok = res.error.is_none() && res.asserts.iter().all(|a| a.pass);
+        failed += usize::from(!ok);
+        out.push(format!("{} {} · status {} · {} ms · {path}", if ok { "✓" } else { "✗" }, r.name, res.status.map(|s| s.to_string()).unwrap_or("—".into()), res.time_ms));
+        out.extend(res.error.map(|e| format!("    {e}")));
+        out.extend(res.asserts.iter().filter(|a| !a.pass).map(|a| format!("    ≠ {} {} {} · real {}", a.name, a.op, a.expected, a.actual)));
+        if !res.missing.is_empty() {
+            out.push(format!("    variables sin valor: {}", res.missing.join(", ")));
+        }
+    }
+    out.push(format!("{} de {} casos OK", cases.len() - failed, cases.len()));
+    Ok(out.join("\n"))
 }
 
 async fn handle(core: &Arc<Core>, m: &Value) -> Option<Value> {
@@ -170,5 +232,20 @@ mod tests {
         }
         let col = core.store.list().into_iter().find(|c| c.name == "Agente").expect("colección creada");
         assert_eq!(col.items[0].items.len(), 1, "la segunda vez actualiza, no duplica");
+    }
+
+    #[tokio::test]
+    async fn casos_de_un_endpoint_en_su_carpeta() {
+        let d = tempfile::tempdir().unwrap();
+        let core = Core::new(Config::load(d.path(), json!({})));
+        let y = "coleccion: Agente\ncurl: curl http://127.0.0.1:9/cuentas/{{nro}}\ncasos:\n  - nombre: Existe\n    datos: {nro: 7}\n    espera: {status: 200, body.id: isDefined}\n  - nombre: No existe\n    datos: {nro: 0}\n    espera: {status: 404}\n";
+        for _ in 0..2 {
+            let t = call(&core, "martino_casos_endpoint", &json!({"yaml": y})).await.unwrap();
+            assert!(t.contains("✗ CP-01 · Existe") && t.ends_with("0 de 2 casos OK"), "{t}");
+        }
+        let dir = core.store.list().into_iter().find(|c| c.name == "Agente").unwrap().items.into_iter().find(|i| i.folder).expect("carpeta de casos");
+        assert_eq!(dir.items.len(), 2, "un archivo por caso, sin duplicar al repetir");
+        let r = core.store.read_request("Agente", &dir.items[0].path).unwrap();
+        assert_eq!((r.vars_pre[0].value.as_str(), r.asserts[0].value.as_str()), ("7", "eq 200"));
     }
 }

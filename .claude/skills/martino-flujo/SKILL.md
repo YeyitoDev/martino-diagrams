@@ -16,6 +16,9 @@ Si tienes las herramientas MCP `martino_*` (servidor `martino mcp`, registrado e
 `martino_ejecutar_flujo` (= `flow`, con `detalle: true` ves lo que respondió cada paso) `martino_enviar` (envía un cURL o una petición en YAML y la guarda en una colección, que crea si no existe; misma carpeta y nombre = la actualiza)
 y `martino_guia` (esta guía). Si la colección que necesitas no existe, ármala con `martino_enviar`: una llamada por endpoint,
 con `nombre` claro y tokens como `{{variables}}` del entorno, nunca escritos en la petición.
+Para probar un endpoint, `martino_casos_endpoint` recibe un YAML (`coleccion`, `endpoint` o `curl`, `casos` con
+`nombre`, `datos` = valores de sus `{{variables}}` y `espera` = `campo: valor` u `operador valor`), crea la carpeta
+«<endpoint> · casos» con un archivo `CP-01 · …` por caso y los ejecuta. Cubre el caso feliz y cada error que documenta `docs`.
 
 - Binario: `martino` en el PATH, o `./target/release/martino` dentro del repo (`cargo build --release -p martino`).
 - Carpeta de trabajo (`--root`): la que tiene `collections/` y `flows/`. En el repo es `.`.
