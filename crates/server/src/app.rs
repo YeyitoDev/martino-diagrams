@@ -71,7 +71,9 @@ pub fn router(hub: Hub) -> Router {
         .route("/api/flow/run", post(flow_run))
         .route("/api/flow/run-async", post(flow_run_async))
         .route("/api/flow/node-run", post(node_run))
-        .route("/api/root", get(get_dir).post(open_dir));
+        .route("/api/root", get(get_dir).post(open_dir))
+        // MCP por HTTP (JSON-RPC, una respuesta JSON por POST) para agentes sin `fly ssh`; en público pide la llave como todo lo demás.
+        .route("/mcp", post(mcp_http));
     api.fallback(ui)
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(hub.clone(), guard))
@@ -88,6 +90,13 @@ async fn ui(uri: Uri) -> Response {
         return (StatusCode::NOT_FOUND, "No hay UI compilada: corre `trunk build --release` en crates/web").into_response();
     };
     ([(header::CONTENT_TYPE, file.metadata.mimetype().to_string())], file.data).into_response()
+}
+
+async fn mcp_http(State(c): S, Json(m): Json<Value>) -> Response {
+    match crate::mcp::handle(&c, &m).await {
+        Some(r) => Json(r).into_response(),
+        None => StatusCode::ACCEPTED.into_response(),
+    }
 }
 
 async fn get_dir(State(c): S) -> ApiResult {

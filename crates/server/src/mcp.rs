@@ -1,12 +1,85 @@
-//! Servidor MCP (JSON-RPC por stdio, una línea por mensaje): las mismas operaciones que la CLI,
+//! Servidor MCP (JSON-RPC por stdio, una línea por mensaje, o por HTTP en `POST /mcp`): las mismas operaciones que la CLI,
 //! para que un agente explore colecciones, escriba flujos en YAML y los ejecute.
-use martino::app::{flow_job, run_item, FlowRunBody, RunItem};
-use martino::state::Core;
+use crate::app::{flow_job, run_item, FlowRunBody, RunItem};
+use crate::state::Core;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex};
 
 const GUIDE: &str = include_str!("../../../.claude/skills/martino-flujo/SKILL.md");
+
+/// Lo que haría fallar el flujo al ejecutarlo y `validate` no ve: colección, peticiones y tablas que no existen.
+fn import_problems(core: &Core, flow: &martino_core::flow::Flow) -> Vec<String> {
+    let mut out = martino_core::flow::validate(flow);
+    if !flow.nodes.iter().any(|n| n.kind == "start") {
+        out.push("falta `inicio: [clave_del_primer_paso]`".into());
+    }
+    let needs_col = flow.nodes.iter().any(|n| !n.req_ref.is_empty() || n.kind == "lookup");
+    if needs_col && core.store.col_dir(&flow.collection).is_err() {
+        out.push(format!("la colección «{}» no existe (mira collections/)", flow.collection));
+        return out;
+    }
+    for n in &flow.nodes {
+        if n.kind == "request" && n.req_ref.is_empty() && n.request.is_none() {
+            out.push(format!("{}: el servicio necesita `ref` (petición guardada) o `request` (petición dentro del flujo)", n.key));
+        }
+        if !n.req_ref.is_empty() && core.store.read_request(&flow.collection, &n.req_ref).is_err() {
+            out.push(format!("{}: no existe la petición «{}» en {}", n.key, n.req_ref, flow.collection));
+        }
+        if let Some(t) = n.lookup.as_ref().map(|l| l.table.as_str()).filter(|t| !t.is_empty()) {
+            if core.store.read_table(&flow.collection, t).is_err() {
+                out.push(format!("{}: no existe la tabla «{t}» en {}", n.key, flow.collection));
+            }
+        }
+    }
+    out
+}
+
+/// Valida, ordena y guarda un flujo escrito en YAML. Devuelve el id.
+pub fn import_flow(core: &Core, src: &str, id: Option<String>) -> Result<String, String> {
+    let mut flow = martino_core::flow_yaml::flow_from_yaml(src)?;
+    let problems = import_problems(core, &flow);
+    if !problems.is_empty() {
+        return Err(format!("El flujo no se puede ejecutar así:\n  - {}", problems.join("\n  - ")));
+    }
+    // Sin `pos`, cada paso va al carril de su etapa, como el botón «Ordenar» de la UI (260 de ancho, 142 de alto).
+    if flow.nodes.iter().all(|n| n.x == 0.0 && n.y == 0.0) {
+        martino_core::layout::arrange(&mut flow, 260.0, 142.0);
+    }
+    martino_core::layout::assign_codes(&mut flow);
+    match id {
+        Some(id) => core.flows.put(&id, &flow).map(|_| id),
+        None => core.flows.create(&flow),
+    }
+}
+
+/// Una línea legible por evento de ejecución (paso o resultado); `true` si es un resultado que no dio OK.
+pub fn run_line(v: &Value) -> Option<(String, bool)> {
+    match v["type"].as_str() {
+        Some("node") => {
+            let s = &v["step"];
+            let mark = if s["ok"] == json!(true) { "✓" } else { "✗" };
+            let st = s["out"]["status"].as_u64().map(|x| format!(" {x}")).unwrap_or_default();
+            let err = s["error"].as_str().map(|e| format!("  {e}")).unwrap_or_default();
+            Some((format!("  {mark} {} ({}){st} {}ms{err}", s["key"].as_str().unwrap_or(""), s["kind"].as_str().unwrap_or(""), s["ms"]), false))
+        }
+        Some("done") | Some("case") => {
+            let r = &v["result"];
+            let verdict = r["verdict"].as_str().unwrap_or("?");
+            let who = v["caseId"].as_str().map(|c| format!("[{c}] ")).unwrap_or_default();
+            let mut out = vec![format!("{who}{verdict} · status {} · {}ms", r["status"], r["ms"])];
+            out.extend(r["error"].as_str().map(|e| format!("  {e}")));
+            for c in r["checks"].as_array().into_iter().flatten().filter(|c| c["ok"] != json!(true)) {
+                out.push(format!("  ≠ {} {} {} · real {}", c["left"].as_str().unwrap_or(""), c["op"].as_str().unwrap_or(""), c["right"].as_str().unwrap_or(""), c["actual"]));
+            }
+            for d in r["compare"]["diffs"].as_array().into_iter().flatten() {
+                out.push(format!("  ≠ {} ({}): esperado {} · real {}", d["path"].as_str().unwrap_or(""), d["kind"].as_str().unwrap_or(""), d["expected"], d["actual"]));
+            }
+            Some((out.join("\n"), verdict != "OK"))
+        }
+        _ => None,
+    }
+}
 
 fn tools() -> Value {
     let s = |props: Value, req: &[&str]| json!({"type": "object", "properties": props, "required": req});
@@ -46,7 +119,7 @@ async fn call(core: &Arc<Core>, name: &str, a: &Value) -> Result<String, String>
         "martino_peticion" => Ok(martino_core::yaml_req::serialize_request(&core.store.read_request(&arg("coleccion")?, &arg("ruta")?)?)),
         "martino_flujo" => Ok(martino_core::flow_yaml::flow_to_yaml(&core.flows.get(&arg("id")?)?)),
         "martino_importar_flujo" => {
-            let id = crate::import_flow(core, &arg("yaml")?, a["id"].as_str().map(String::from))?;
+            let id = import_flow(core, &arg("yaml")?, a["id"].as_str().map(String::from))?;
             Ok(format!("✓ flows/{id}.flow.json guardado. Ejecútalo con martino_ejecutar_flujo {{id: \"{id}\", casos: true}}; en la UI aparece en Flujos al refrescar."))
         }
         "martino_ejecutar_flujo" => {
@@ -56,7 +129,7 @@ async fn call(core: &Arc<Core>, name: &str, a: &Value) -> Result<String, String>
             let lines = Arc::new(Mutex::new(vec![format!("▶ {} ({id})", flow.name)]));
             let l2 = lines.clone();
             let emit: Arc<dyn Fn(Value) + Send + Sync> = Arc::new(move |v: Value| {
-                let Some((line, _)) = crate::run_line(&v) else { return };
+                let Some((line, _)) = run_line(&v) else { return };
                 let mut l = l2.lock().unwrap();
                 l.push(line);
                 if detail && v["type"] == "node" {
@@ -118,7 +191,7 @@ fn collection_id(core: &Core, name: &str) -> Result<String, String> {
 
 /// Guarda la petición en la carpeta; si ya hay una con el mismo nombre, la actualiza (conserva código y orden).
 fn save(core: &Core, col: &str, folder: &str, mut r: martino_core::model::Request) -> Result<String, String> {
-    let same = format!("{}{}{}", if folder.is_empty() { String::new() } else { format!("{folder}/") }, martino::store::slug(&r.name), martino_core::yaml_req::EXT);
+    let same = format!("{}{}{}", if folder.is_empty() { String::new() } else { format!("{folder}/") }, crate::store::slug(&r.name), martino_core::yaml_req::EXT);
     match core.store.read_request(col, &same) {
         Ok(old) => {
             (r.id, r.seq) = (old.id, old.seq);
@@ -179,7 +252,7 @@ async fn endpoint_cases(core: &Arc<Core>, src: &str) -> Result<String, String> {
     Ok(out.join("\n"))
 }
 
-async fn handle(core: &Arc<Core>, m: &Value) -> Option<Value> {
+pub async fn handle(core: &Arc<Core>, m: &Value) -> Option<Value> {
     let id = m.get("id")?.clone(); // sin id es una notificación: no se responde
     let result = match m["method"].as_str().unwrap_or("") {
         "initialize" => json!({
@@ -219,7 +292,7 @@ pub async fn serve(core: Arc<Core>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use martino::config::Config;
+    use crate::config::Config;
 
     #[tokio::test]
     async fn enviar_crea_la_coleccion_y_no_duplica() {

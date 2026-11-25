@@ -107,6 +107,19 @@ async fn public_mode_requires_key() {
 }
 
 #[tokio::test]
+async fn mcp_por_http_con_llave() {
+    let e = common::start().await;
+    e.core.cfg.write().unwrap().public_key = Some("llave-secreta-de-prueba-123".into());
+    let c = reqwest::Client::new();
+    let post = |q: &str| c.post(format!("{}/mcp{q}", e.base)).header("Host", "abc.trycloudflare.com").json(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}));
+    assert_eq!(post("").send().await.unwrap().status(), 403, "sin llave");
+    let r: serde_json::Value = post("?key=llave-secreta-de-prueba-123").send().await.unwrap().json().await.unwrap();
+    assert!(r["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "martino_casos_endpoint"), "{r}");
+    let note = c.post(format!("{}/mcp?key=llave-secreta-de-prueba-123", e.base)).header("Host", "abc.trycloudflare.com").json(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    assert_eq!(note.send().await.unwrap().status(), 202, "las notificaciones no llevan respuesta");
+}
+
+#[tokio::test]
 async fn switch_root_folder() {
     let home = tempfile::tempdir().unwrap();
     // Único test que toca recientes: así no escribe en el ~/.martino real.

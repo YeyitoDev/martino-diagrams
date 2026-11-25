@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-mod mcp;
+use martino::mcp::{self, import_flow, run_line};
 
 #[derive(Parser)]
 #[command(name = "martino", about = "Martino: cliente HTTP local con flujos visuales")]
@@ -90,78 +90,6 @@ fn default_root() -> Option<PathBuf> {
     })
 }
 
-/// Lo que haría fallar el flujo al ejecutarlo y `validate` no ve: colección, peticiones y tablas que no existen.
-fn import_problems(core: &Core, flow: &martino_core::flow::Flow) -> Vec<String> {
-    let mut out = martino_core::flow::validate(flow);
-    if !flow.nodes.iter().any(|n| n.kind == "start") {
-        out.push("falta `inicio: [clave_del_primer_paso]`".into());
-    }
-    let needs_col = flow.nodes.iter().any(|n| !n.req_ref.is_empty() || n.kind == "lookup");
-    if needs_col && core.store.col_dir(&flow.collection).is_err() {
-        out.push(format!("la colección «{}» no existe (mira collections/)", flow.collection));
-        return out;
-    }
-    for n in &flow.nodes {
-        if n.kind == "request" && n.req_ref.is_empty() && n.request.is_none() {
-            out.push(format!("{}: el servicio necesita `ref` (petición guardada) o `request` (petición dentro del flujo)", n.key));
-        }
-        if !n.req_ref.is_empty() && core.store.read_request(&flow.collection, &n.req_ref).is_err() {
-            out.push(format!("{}: no existe la petición «{}» en {}", n.key, n.req_ref, flow.collection));
-        }
-        if let Some(t) = n.lookup.as_ref().map(|l| l.table.as_str()).filter(|t| !t.is_empty()) {
-            if core.store.read_table(&flow.collection, t).is_err() {
-                out.push(format!("{}: no existe la tabla «{t}» en {}", n.key, flow.collection));
-            }
-        }
-    }
-    out
-}
-
-/// Valida, ordena y guarda un flujo escrito en YAML. Devuelve el id.
-fn import_flow(core: &Core, src: &str, id: Option<String>) -> Result<String, String> {
-    let mut flow = martino_core::flow_yaml::flow_from_yaml(src)?;
-    let problems = import_problems(core, &flow);
-    if !problems.is_empty() {
-        return Err(format!("El flujo no se puede ejecutar así:\n  - {}", problems.join("\n  - ")));
-    }
-    // Sin `pos`, cada paso va al carril de su etapa, como el botón «Ordenar» de la UI (260 de ancho, 142 de alto).
-    if flow.nodes.iter().all(|n| n.x == 0.0 && n.y == 0.0) {
-        martino_core::layout::arrange(&mut flow, 260.0, 142.0);
-    }
-    martino_core::layout::assign_codes(&mut flow);
-    match id {
-        Some(id) => core.flows.put(&id, &flow).map(|_| id),
-        None => core.flows.create(&flow),
-    }
-}
-
-/// Una línea legible por evento de ejecución (paso o resultado); `true` si es un resultado que no dio OK.
-fn run_line(v: &Value) -> Option<(String, bool)> {
-    match v["type"].as_str() {
-        Some("node") => {
-            let s = &v["step"];
-            let mark = if s["ok"] == json!(true) { "✓" } else { "✗" };
-            let st = s["out"]["status"].as_u64().map(|x| format!(" {x}")).unwrap_or_default();
-            let err = s["error"].as_str().map(|e| format!("  {e}")).unwrap_or_default();
-            Some((format!("  {mark} {} ({}){st} {}ms{err}", s["key"].as_str().unwrap_or(""), s["kind"].as_str().unwrap_or(""), s["ms"]), false))
-        }
-        Some("done") | Some("case") => {
-            let r = &v["result"];
-            let verdict = r["verdict"].as_str().unwrap_or("?");
-            let who = v["caseId"].as_str().map(|c| format!("[{c}] ")).unwrap_or_default();
-            let mut out = vec![format!("{who}{verdict} · status {} · {}ms", r["status"], r["ms"])];
-            out.extend(r["error"].as_str().map(|e| format!("  {e}")));
-            for c in r["checks"].as_array().into_iter().flatten().filter(|c| c["ok"] != json!(true)) {
-                out.push(format!("  ≠ {} {} {} · real {}", c["left"].as_str().unwrap_or(""), c["op"].as_str().unwrap_or(""), c["right"].as_str().unwrap_or(""), c["actual"]));
-            }
-            for d in r["compare"]["diffs"].as_array().into_iter().flatten() {
-                out.push(format!("  ≠ {} ({}): esperado {} · real {}", d["path"].as_str().unwrap_or(""), d["kind"].as_str().unwrap_or(""), d["expected"], d["actual"]));
-            }
-            Some((out.join("\n"), verdict != "OK"))
-        }
-        _ => None,
-    }
-}
 
 #[tokio::main]
 async fn main() {

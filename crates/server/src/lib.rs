@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod executor;
 pub mod flows;
 pub mod icons;
+pub mod mcp;
 pub mod state;
 pub mod store;
 
