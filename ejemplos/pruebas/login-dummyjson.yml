@@ -1,0 +1,61 @@
+nombre: Pruebas · Login y perfil (DummyJSON)
+coleccion: gratis
+inicio: [login]
+nodos:
+  - clave: guia
+    tipo: nota
+    nombre: Qué muestra este flujo
+    text: "DummyJSON es una API pública de prueba. Se inicia sesión con un usuario de ejemplo, se guarda el token y se reutiliza en la siguiente llamada. Si la clave es mala, el servicio responde 400 y el flujo sale por la rama de error."
+
+  - clave: entrada
+    tipo: entrada
+    nombre: Entrada
+    desc: Usuario de prueba publicado en dummyjson.com/docs/auth (no es una cuenta real).
+    data: { usuario: emilys, clave: emilyspass }
+
+  - clave: login
+    tipo: servicio
+    nombre: Iniciar sesión
+    desc: "POST {{dummyUrl}}/auth/login. Responde 200 con accessToken; con usuario o clave inválidos responde 400 «Invalid credentials»."
+    request: { method: POST, url: "{{dummyUrl}}/auth/login", bodyMode: json, body: { json: "{\"username\": \"{{entrada.usuario}}\", \"password\": \"{{entrada.clave}}\", \"expiresInMins\": 5}" } }
+    siguiente: [sesion]
+    error: [rechazo]
+
+  - clave: sesion
+    tipo: extraer
+    nombre: Guardar el token
+    desc: El token viaja como variable {{token}} a la siguiente llamada.
+    vars: [{ name: token, value: login.response.accessToken }]
+    siguiente: [perfil]
+
+  - clave: perfil
+    tipo: servicio
+    nombre: Mi perfil
+    desc: "GET {{dummyUrl}}/auth/me con Authorization: Bearer {{token}}."
+    request: { method: GET, url: "{{dummyUrl}}/auth/me", headers: [{ name: Authorization, value: "Bearer {{token}}" }] }
+    siguiente: [ok]
+    error: [rechazo]
+
+  - clave: ok
+    tipo: respuesta
+    nombre: Bienvenida
+    status: "200"
+    body: { nombre: "{{perfil.response.firstName}} {{perfil.response.lastName}}", correo: "{{perfil.response.email}}", rol: "{{perfil.response.role}}" }
+
+  - clave: rechazo
+    tipo: respuesta
+    nombre: Credenciales inválidas
+    status: "401"
+    body: { error: "No se pudo iniciar sesión", detalle: "{{login.response.message}}" }
+
+casos:
+  - id: LOG-001
+    name: Usuario de prueba entra
+    input: { usuario: emilys, clave: emilyspass }
+    expectStatus: 200
+    expect: [{ left: nodo, op: eq, right: ok }, { left: nombre, op: eq, right: Emily Johnson }]
+  - id: LOG-002
+    name: Clave mala sale por error
+    input: { usuario: emilys, clave: mala }
+    expectStatus: 401
+    expect: [{ left: nodo, op: eq, right: rechazo }, { left: detalle, op: contains, right: Invalid }]

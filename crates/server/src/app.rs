@@ -162,7 +162,8 @@ async fn guard(State(core): S, req: HttpRequest, next: Next) -> Response {
         let c = core.cfg.read().unwrap();
         (c.port, c.public_key.clone())
     };
-    let set_cookie = match denied(&req, port, key.as_deref(), EXPOSED.get().copied().unwrap_or(false)) {
+    let (exposed, open) = EXPOSED.get().copied().unwrap_or_default();
+    let set_cookie = match denied(&req, port, key.as_deref(), exposed, open) {
         Err(msg) => return (StatusCode::FORBIDDEN, msg).into_response(),
         Ok(s) => s,
     };
@@ -181,11 +182,12 @@ async fn guard(State(core): S, req: HttpRequest, next: Next) -> Response {
 /// Túneles aceptados en modo `--public`: Cloudflare y Tailscale (`tailscale serve`).
 const TUNNEL_SUFFIXES: [&str; 2] = [".trycloudflare.com", ".ts.net"];
 
-static EXPOSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static EXPOSED: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
 
-/// El servidor escucha fuera de la máquina (MARTINO_BIND): ningún Host cuenta como local.
-pub fn set_exposed(v: bool) {
-    let _ = EXPOSED.set(v);
+/// `exposed`: escucha fuera de la máquina (MARTINO_BIND), ningún Host cuenta como local.
+/// `open`: demo sin llave (MARTINO_DEMO); el host público y X-Workbench se siguen exigiendo.
+pub fn set_exposed(exposed: bool, open: bool) {
+    let _ = EXPOSED.set((exposed, open));
 }
 
 /// Host público exacto aceptado además de los túneles (`MARTINO_PUBLIC_HOST=martino.fly.dev`).
@@ -199,7 +201,7 @@ fn same(a: &str, b: &str) -> bool {
 
 /// Local: Host/Origin locales. Público (`--public`): solo el host del túnel y con la llave
 /// (en `?key=` la primera vez; luego en una cookie HttpOnly). `Ok(true)` = hay que fijar la cookie.
-fn denied(req: &HttpRequest, port: u16, key: Option<&str>, exposed: bool) -> Result<bool, &'static str> {
+fn denied(req: &HttpRequest, port: u16, key: Option<&str>, exposed: bool, open: bool) -> Result<bool, &'static str> {
     let hv = |n: header::HeaderName| req.headers().get(n).and_then(|v| v.to_str().ok());
     let host = hv(header::HOST).unwrap_or("");
     let mut set_cookie = false;
@@ -212,10 +214,10 @@ fn denied(req: &HttpRequest, port: u16, key: Option<&str>, exposed: bool) -> Res
         let Some(key) = key.filter(|_| public_host_ok(name)) else { return Err("Host no permitido") };
         let cookie_ok = req.headers().get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()).flat_map(|c| c.split(';')).any(|c| c.trim().strip_prefix("martino_key=").is_some_and(|v| same(v, key)));
         let query_ok = req.uri().query().unwrap_or("").split('&').any(|kv| kv.strip_prefix("key=").is_some_and(|v| same(v, key)));
-        if !cookie_ok && !query_ok {
+        if !open && !cookie_ok && !query_ok {
             return Err("Acceso restringido: abre el enlace con la llave (?key=…)");
         }
-        set_cookie = !cookie_ok;
+        set_cookie = !open && !cookie_ok;
         if hv(header::ORIGIN).is_some_and(|o| o != format!("https://{host}")) {
             return Err("Origin no permitido");
         }
@@ -745,10 +747,20 @@ mod tests {
     #[test]
     fn expuesto_pide_llave_aunque_digan_ser_local() {
         let key = Some("llave-de-prueba-de-24-caracteres");
-        assert!(denied(&req("127.0.0.1:4400", "/api/flows"), 4400, key, false).is_ok(), "en la Mac, lo local entra");
-        assert!(denied(&req("127.0.0.1:4400", "/api/flows"), 4400, key, true).is_err(), "expuesto: Host local sin llave no entra");
-        assert!(denied(&req("evil.example.com", "/api/flows?key=llave-de-prueba-de-24-caracteres"), 4400, key, true).is_err(), "host ajeno no entra ni con llave");
-        assert!(denied(&req("x.ts.net", "/api/flows"), 4400, key, true).is_err(), "túnel sin llave no entra");
-        assert_eq!(denied(&req("x.ts.net", "/api/flows?key=llave-de-prueba-de-24-caracteres"), 4400, key, true), Ok(true), "túnel con llave entra y fija la cookie");
+        assert!(denied(&req("127.0.0.1:4400", "/api/flows"), 4400, key, false, false).is_ok(), "en la Mac, lo local entra");
+        assert!(denied(&req("127.0.0.1:4400", "/api/flows"), 4400, key, true, false).is_err(), "expuesto: Host local sin llave no entra");
+        assert!(denied(&req("evil.example.com", "/api/flows?key=llave-de-prueba-de-24-caracteres"), 4400, key, true, false).is_err(), "host ajeno no entra ni con llave");
+        assert!(denied(&req("x.ts.net", "/api/flows"), 4400, key, true, false).is_err(), "túnel sin llave no entra");
+        assert_eq!(denied(&req("x.ts.net", "/api/flows?key=llave-de-prueba-de-24-caracteres"), 4400, key, true, false), Ok(true), "túnel con llave entra y fija la cookie");
+    }
+
+    #[test]
+    fn demo_abierta_sin_llave_pero_solo_en_su_host() {
+        let key = Some("llave-de-prueba-de-24-caracteres");
+        std::env::set_var("MARTINO_PUBLIC_HOST", "demo.fly.dev");
+        assert_eq!(denied(&req("demo.fly.dev", "/api/flows"), 4400, key, true, true), Ok(false), "demo: entra sin llave y sin cookie");
+        assert!(denied(&req("evil.example.com", "/api/flows"), 4400, key, true, true).is_err(), "demo: host ajeno no entra");
+        let sin_workbench = axum::http::Request::builder().uri("/api/flows").header(header::HOST, "demo.fly.dev").body(axum::body::Body::empty()).unwrap();
+        assert!(denied(&sin_workbench, 4400, key, true, true).is_err(), "demo: sigue pidiendo X-Workbench");
     }
 }

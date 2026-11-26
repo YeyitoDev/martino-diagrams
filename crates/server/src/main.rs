@@ -104,7 +104,14 @@ async fn main() {
             let mut cfg = Config::load(&root, over);
             if public {
                 let key = std::env::var("MARTINO_PUBLIC_KEY").ok().filter(|k| k.len() >= 24).unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
-                println!("🔑 Modo público: entra con https://<túnel>/?key={key} (Cloudflare o Tailscale)");
+                if martino::executor::demo() {
+                    if martino::executor::allowed_hosts().trim().is_empty() {
+                        die("MARTINO_DEMO abre Martino sin llave: define MARTINO_ALLOWED_HOSTS (hosts a los que se puede llamar, separados por comas)");
+                    }
+                    println!("🌐 Demo abierta sin llave; sólo llama a: {}", martino::executor::allowed_hosts());
+                } else {
+                    println!("🔑 Modo público: entra con https://<túnel>/?key={key} (Cloudflare o Tailscale)");
+                }
                 cfg.public_key = Some(key);
             }
             martino::config::remember(&root);

@@ -1,0 +1,69 @@
+nombre: Pruebas · Autor y sus publicaciones (JSONPlaceholder)
+coleccion: gratis
+inicio: [autor]
+nodos:
+  - clave: guia
+    tipo: nota
+    nombre: Qué muestra este flujo
+    text: "JSONPlaceholder es una API pública de prueba con usuarios y posts falsos. Se busca un autor, se traen sus posts, se resume con JS y se crea un post de prueba (la API lo simula: responde 201 pero no lo guarda)."
+
+  - clave: entrada
+    tipo: entrada
+    nombre: Entrada
+    desc: usuarioId del 1 al 10 existe; cualquier otro da 404.
+    data: { usuarioId: 1 }
+
+  - clave: autor
+    tipo: servicio
+    nombre: Buscar autor
+    desc: "GET {{blogUrl}}/users/{id}. 404 si no existe."
+    request: { method: GET, url: "{{blogUrl}}/users/{{entrada.usuarioId}}" }
+    siguiente: [posts]
+    error: [no_existe]
+
+  - clave: posts
+    tipo: servicio
+    nombre: Sus publicaciones
+    desc: "GET {{blogUrl}}/posts?userId={id}: lista de 10 posts por autor."
+    request: { method: GET, url: "{{blogUrl}}/posts?userId={{entrada.usuarioId}}" }
+    siguiente: [resumen]
+
+  - clave: resumen
+    tipo: transformar
+    nombre: Resumir
+    desc: Junta los datos del autor con el conteo y el primer título.
+    code: |
+      const p = nodes.posts.response;
+      return { autor: nodes.autor.response.name, ciudad: nodes.autor.response.address.city, total: p.length, primero: p[0] ? p[0].title : "" };
+    siguiente: [crear]
+
+  - clave: crear
+    tipo: servicio
+    nombre: Publicar un post de prueba
+    desc: "POST {{blogUrl}}/posts. Responde 201 con id 101 (simulado, no se guarda)."
+    request: { method: POST, url: "{{blogUrl}}/posts", bodyMode: json, body: { json: "{\"userId\": {{entrada.usuarioId}}, \"title\": \"Hola desde Martino\", \"body\": \"Post de prueba\"}" } }
+    siguiente: [ok]
+
+  - clave: ok
+    tipo: respuesta
+    nombre: Resumen del autor
+    status: "200"
+    body: { autor: "{{resumen.autor}}", ciudad: "{{resumen.ciudad}}", publicaciones: "{{resumen.total}}", primerTitulo: "{{resumen.primero}}", nuevoPostId: "{{crear.response.id}}" }
+
+  - clave: no_existe
+    tipo: respuesta
+    nombre: Autor no existe
+    status: "404"
+    body: { error: "No existe el autor {{entrada.usuarioId}}" }
+
+casos:
+  - id: AUT-001
+    name: Autor 1 con sus posts
+    input: { usuarioId: 1 }
+    expectStatus: 200
+    expect: [{ left: nodo, op: eq, right: ok }, { left: autor, op: eq, right: Leanne Graham }, { left: nuevoPostId, op: eq, right: "101" }]
+  - id: AUT-002
+    name: Autor inexistente
+    input: { usuarioId: 999 }
+    expectStatus: 404
+    expect: [{ left: nodo, op: eq, right: no_existe }]

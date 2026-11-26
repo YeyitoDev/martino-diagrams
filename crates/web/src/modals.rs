@@ -242,6 +242,16 @@ fn EnvManager(focus: Option<String>) -> impl IntoView {
 
 // ---------- cURL ----------
 
+/// cURLs contra APIs públicas de prueba: funcionan en la demo de Fly (están en MARTINO_ALLOWED_HOSTS).
+const CURL_EJEMPLOS: [(&str, &str); 6] = [
+    ("GET httpbin", "curl 'https://httpbin.org/get?saludo=hola' -H 'Accept: application/json'"),
+    ("POST post", "curl -X POST https://jsonplaceholder.typicode.com/posts -H 'Content-Type: application/json' -d '{\"title\": \"Hola\", \"body\": \"Prueba desde Martino\", \"userId\": 1}'"),
+    ("Login DummyJSON", "curl -X POST https://dummyjson.com/auth/login -H 'Content-Type: application/json' -d '{\"username\": \"emilys\", \"password\": \"emilyspass\"}'"),
+    ("Pokémon", "curl https://pokeapi.co/api/v2/pokemon/pikachu"),
+    ("Clima en Lima", "curl 'https://api.open-meteo.com/v1/forecast?latitude=-12.05&longitude=-77.04&current=temperature_2m'"),
+    ("Error 404", "curl https://httpbin.org/status/404"),
+];
+
 #[component]
 fn CurlImport(text: String, folder: Option<String>) -> impl IntoView {
     let a = app();
@@ -310,6 +320,9 @@ fn CurlImport(text: String, folder: Option<String>) -> impl IntoView {
     view! {
         <ModalFrame title="Pegar cURL" footer=footer>
             <div class="col">
+                <div class="row" style="flex-wrap:wrap"><span class="muted">"Ejemplos de prueba:"</span>
+                    {CURL_EJEMPLOS.iter().map(|(n, c)| view! { <button class="btn sm ghost" title=*c on:click=move |_| text.set(c.to_string())>{*n}</button> }).collect_view()}
+                </div>
                 <textarea class="in" rows=8 data-noac placeholder="curl 'https://…' -H '…' --data-raw '…'" prop:value=move || text.get() on:input=move |e| text.set(event_target_value(&e))></textarea>
                 <label class="row"><input type="checkbox" prop:checked=move || templ.get() on:change=move |e| templ.set(event_target_checked(&e)) />
                     {move || format!("Usar variables del entorno «{}» (URL base, cabeceras y token)", a.env.get())}</label>

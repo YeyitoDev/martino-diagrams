@@ -214,7 +214,7 @@ Para traducir códigos: `002 → BCP`, `PE → Perú`, `ACTIVO → A`.
 
 ![Inicio: presentación con un flujo animado, las funciones y el tutorial en 4 pasos](docs/img/inicio.jpg)
 
-La colección `collections/gratis` trae 6 flujos listos para ejecutar con el entorno **publico**, de más fácil a más complejo. Cada uno tiene sus casos QA:
+La colección `collections/gratis` trae 8 flujos listos para ejecutar con el entorno **publico**, de más fácil a más complejo. Cada uno tiene sus casos QA:
 
 | Flujo | Qué muestra | Servicios | Casos |
 |---|---|---|---|
@@ -224,13 +224,19 @@ La colección `collections/gratis` trae 6 flujos listos para ejecutar con el ent
 | **Viaje: clima y cambio por país** | Tabla `paises` → 2 servicios **en paralelo** → unión en JavaScript → condición | Open-Meteo, ExchangeRate-API | 3 (Perú, Japón, país que no existe) |
 | **Pago firmado y cifrado** | Tabla `bancos` → reglas → **JWS** → **JWE** → **HMAC** en header → envío → descifra y verifica el eco | httpbin | 3 (pago OK, banco inválido, monto alto) |
 | **Duelo pokémon** | 2 servicios en paralelo → unión → tabla `tipos` (inglés → español) → empate o ganador | PokéAPI | 4 (incluye 404 de un nombre inventado) |
+| **Pruebas · Login y perfil** | Login → **extraer el token** → `Authorization: Bearer {{token}}` → perfil; rama de error | DummyJSON | 2 (usuario de prueba, clave mala) |
+| **Pruebas · Autor y sus publicaciones** | Autor → sus posts → resumen en JavaScript → POST simulado; 404 por la rama de error | JSONPlaceholder | 2 (autor 1, autor inexistente) |
 
 ```bash
 martino flow gratis--tutorial-1 --env publico --cases
 martino flow gratis--viaje --env publico --cases
 martino flow gratis--pago-cifrado --env publico --cases
 martino flow gratis--duelo-pokemon --env publico --cases
+martino flow gratis--login-dummyjson --env publico --cases
+martino flow gratis--autor-jsonplaceholder --env publico --cases
 ```
+
+En **«cURL»** (barra de arriba) hay botones con **cURLs de prueba** listos (httpbin, JSONPlaceholder, DummyJSON, PokéAPI, Open-Meteo y un 404) para pegarlos y ejecutarlos.
 
 > Las llaves del flujo de pago son **de prueba** y están en sus Variables. No las uses para nada real.
 
@@ -330,6 +336,14 @@ curl -fsSL https://raw.githubusercontent.com/YeyitoDev/martino-diagrams/master/s
 ```
 
 [`scripts/fly-setup.sh`](scripts/fly-setup.sh) crea la app y el volumen, genera la llave, guarda el token de despliegue como secreto `FLY_API_TOKEN` del repo y te muestra tu enlace `https://martino.fly.dev/?key=…`. Desde ahí, **cada push a `master` se despliega solo**: el workflow [`deploy.yml`](.github/workflows/deploy.yml) compila, corre las pruebas y despliega. Archivos: [`fly.toml`](fly.toml), [`deploy/`](deploy).
+
+### Demo abierta en Fly (sin llave)
+
+[`https://martino-demo.fly.dev`](https://martino-demo.fly.dev) es una copia para probar sin pedir nada: entra cualquiera, sin llave.
+Para que no sea un proxy abierto, `MARTINO_DEMO=1` **sólo deja llamar a los hosts de `MARTINO_ALLOWED_HOSTS`**
+(las APIs de prueba de los ejemplos), también al seguir redirecciones, y Martino no arranca en demo si esa lista está vacía.
+No tiene volumen: lo que cambien los visitantes se borra cuando la máquina se reinicia. Config: [`fly.demo.toml`](fly.demo.toml);
+se despliega en el mismo workflow si existe el secreto `FLY_DEMO_API_TOKEN` (`fly tokens create deploy -a martino-demo`).
 
 ### A mano (cualquier sistema)
 

@@ -1,0 +1,288 @@
+{
+  "name": "Pruebas · Autor y sus publicaciones (JSONPlaceholder)",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 30.0,
+      "y": 60.0,
+      "sid": "INI-01"
+    },
+    {
+      "id": "guia",
+      "type": "note",
+      "key": "guia",
+      "name": "Qué muestra este flujo",
+      "x": 0.0,
+      "y": 0.0,
+      "text": "JSONPlaceholder es una API pública de prueba con usuarios y posts falsos. Se busca un autor, se traen sus posts, se resume con JS y se crea un post de prueba (la API lo simula: responde 201 pero no lo guarda).",
+      "sid": "NOT-01"
+    },
+    {
+      "id": "entrada",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "desc": "usuarioId del 1 al 10 existe; cualquier otro da 404.",
+      "x": 30.0,
+      "y": 202.0,
+      "data": {
+        "usuarioId": 1
+      },
+      "sid": "ENT-01"
+    },
+    {
+      "id": "autor",
+      "type": "request",
+      "key": "autor",
+      "name": "Buscar autor",
+      "desc": "GET {{blogUrl}}/users/{id}. 404 si no existe.",
+      "x": 810.0,
+      "y": 60.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{blogUrl}}/users/{{entrada.usuarioId}}",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-01"
+    },
+    {
+      "id": "posts",
+      "type": "request",
+      "key": "posts",
+      "name": "Sus publicaciones",
+      "desc": "GET {{blogUrl}}/posts?userId={id}: lista de 10 posts por autor.",
+      "x": 810.0,
+      "y": 202.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{blogUrl}}/posts?userId={{entrada.usuarioId}}",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-02"
+    },
+    {
+      "id": "resumen",
+      "type": "transform",
+      "key": "resumen",
+      "name": "Resumir",
+      "desc": "Junta los datos del autor con el conteo y el primer título.",
+      "x": 550.0,
+      "y": 60.0,
+      "code": "const p = nodes.posts.response;\nreturn { autor: nodes.autor.response.name, ciudad: nodes.autor.response.address.city, total: p.length, primero: p[0] ? p[0].title : \"\" };\n",
+      "sid": "TRF-01"
+    },
+    {
+      "id": "crear",
+      "type": "request",
+      "key": "crear",
+      "name": "Publicar un post de prueba",
+      "desc": "POST {{blogUrl}}/posts. Responde 201 con id 101 (simulado, no se guarda).",
+      "x": 810.0,
+      "y": 344.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{blogUrl}}/posts",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"userId\": {{entrada.usuarioId}}, \"title\": \"Hola desde Martino\", \"body\": \"Post de prueba\"}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-03"
+    },
+    {
+      "id": "ok",
+      "type": "response",
+      "key": "ok",
+      "name": "Resumen del autor",
+      "x": 1070.0,
+      "y": 202.0,
+      "status": "200",
+      "body": {
+        "autor": "{{resumen.autor}}",
+        "ciudad": "{{resumen.ciudad}}",
+        "publicaciones": "{{resumen.total}}",
+        "primerTitulo": "{{resumen.primero}}",
+        "nuevoPostId": "{{crear.response.id}}"
+      },
+      "sid": "RES-01"
+    },
+    {
+      "id": "no_existe",
+      "type": "response",
+      "key": "no_existe",
+      "name": "Autor no existe",
+      "x": 1070.0,
+      "y": 60.0,
+      "status": "404",
+      "body": {
+        "error": "No existe el autor {{entrada.usuarioId}}"
+      },
+      "sid": "RES-02"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "port": "out",
+      "to": "autor"
+    },
+    {
+      "from": "autor",
+      "port": "out",
+      "to": "posts"
+    },
+    {
+      "from": "autor",
+      "port": "error",
+      "to": "no_existe"
+    },
+    {
+      "from": "posts",
+      "port": "out",
+      "to": "resumen"
+    },
+    {
+      "from": "resumen",
+      "port": "out",
+      "to": "crear"
+    },
+    {
+      "from": "crear",
+      "port": "out",
+      "to": "ok"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [
+    {
+      "id": "AUT-001",
+      "name": "Autor 1 con sus posts",
+      "input": {
+        "usuarioId": 1
+      },
+      "expectStatus": 200,
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "ok"
+        },
+        {
+          "left": "autor",
+          "op": "eq",
+          "right": "Leanne Graham"
+        },
+        {
+          "left": "nuevoPostId",
+          "op": "eq",
+          "right": "101"
+        }
+      ]
+    },
+    {
+      "id": "AUT-002",
+      "name": "Autor inexistente",
+      "input": {
+        "usuarioId": 999
+      },
+      "expectStatus": 404,
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "no_existe"
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

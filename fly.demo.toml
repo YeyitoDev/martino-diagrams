@@ -1,0 +1,24 @@
+# Demo pública de Martino SIN llave: cualquiera entra, pero sólo puede llamar a las APIs de prueba
+# de MARTINO_ALLOWED_HOSTS. Sin volumen: lo que editen los visitantes se borra al reiniciar la máquina.
+app = "martino-demo"
+primary_region = "gru"
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[env]
+  MARTINO_BIND = "0.0.0.0"
+  MARTINO_PUBLIC_HOST = "martino-demo.fly.dev"
+  MARTINO_DEMO = "1"
+  MARTINO_ALLOWED_HOSTS = "httpbin.org,jsonplaceholder.typicode.com,dummyjson.com,pokeapi.co,api.open-meteo.com,open.er-api.com"
+
+[http_service]
+  internal_port = 4400
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

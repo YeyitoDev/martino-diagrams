@@ -1,0 +1,257 @@
+{
+  "name": "Pruebas · Login y perfil (DummyJSON)",
+  "collection": "gratis",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "key": "inicio",
+      "name": "Inicio",
+      "x": 30.0,
+      "y": 60.0,
+      "sid": "INI-01"
+    },
+    {
+      "id": "guia",
+      "type": "note",
+      "key": "guia",
+      "name": "Qué muestra este flujo",
+      "x": 0.0,
+      "y": 0.0,
+      "text": "DummyJSON es una API pública de prueba. Se inicia sesión con un usuario de ejemplo, se guarda el token y se reutiliza en la siguiente llamada. Si la clave es mala, el servicio responde 400 y el flujo sale por la rama de error.",
+      "sid": "NOT-01"
+    },
+    {
+      "id": "entrada",
+      "type": "input",
+      "key": "entrada",
+      "name": "Entrada",
+      "desc": "Usuario de prueba publicado en dummyjson.com/docs/auth (no es una cuenta real).",
+      "x": 30.0,
+      "y": 202.0,
+      "data": {
+        "usuario": "emilys",
+        "clave": "emilyspass"
+      },
+      "sid": "ENT-01"
+    },
+    {
+      "id": "login",
+      "type": "request",
+      "key": "login",
+      "name": "Iniciar sesión",
+      "desc": "POST {{dummyUrl}}/auth/login. Responde 200 con accessToken; con usuario o clave inválidos responde 400 «Invalid credentials».",
+      "x": 810.0,
+      "y": 60.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "POST",
+        "url": "{{dummyUrl}}/auth/login",
+        "bodyMode": "json",
+        "authMode": "none",
+        "body": {
+          "json": "{\"username\": \"{{entrada.usuario}}\", \"password\": \"{{entrada.clave}}\", \"expiresInMins\": 5}",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-01"
+    },
+    {
+      "id": "sesion",
+      "type": "extract",
+      "key": "sesion",
+      "name": "Guardar el token",
+      "desc": "El token viaja como variable {{token}} a la siguiente llamada.",
+      "x": 550.0,
+      "y": 60.0,
+      "vars": [
+        {
+          "name": "token",
+          "value": "login.response.accessToken"
+        }
+      ],
+      "sid": "EXT-01"
+    },
+    {
+      "id": "perfil",
+      "type": "request",
+      "key": "perfil",
+      "name": "Mi perfil",
+      "desc": "GET {{dummyUrl}}/auth/me con Authorization: Bearer {{token}}.",
+      "x": 810.0,
+      "y": 202.0,
+      "request": {
+        "name": "",
+        "id": "",
+        "kind": "http",
+        "seq": null,
+        "method": "GET",
+        "url": "{{dummyUrl}}/auth/me",
+        "bodyMode": "none",
+        "authMode": "none",
+        "body": {
+          "json": "",
+          "text": "",
+          "xml": "",
+          "form": [],
+          "multipart": []
+        },
+        "auth": {
+          "token": "",
+          "username": "",
+          "password": ""
+        },
+        "params": [],
+        "pathParams": [],
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "varsPre": [],
+        "varsPost": [],
+        "asserts": [],
+        "scriptPre": "",
+        "scriptPost": "",
+        "tests": "",
+        "docs": "",
+        "extra": []
+      },
+      "sid": "SRV-02"
+    },
+    {
+      "id": "ok",
+      "type": "response",
+      "key": "ok",
+      "name": "Bienvenida",
+      "x": 1070.0,
+      "y": 60.0,
+      "status": "200",
+      "body": {
+        "nombre": "{{perfil.response.firstName}} {{perfil.response.lastName}}",
+        "correo": "{{perfil.response.email}}",
+        "rol": "{{perfil.response.role}}"
+      },
+      "sid": "RES-01"
+    },
+    {
+      "id": "rechazo",
+      "type": "response",
+      "key": "rechazo",
+      "name": "Credenciales inválidas",
+      "x": 1070.0,
+      "y": 202.0,
+      "status": "401",
+      "body": {
+        "error": "No se pudo iniciar sesión",
+        "detalle": "{{login.response.message}}"
+      },
+      "sid": "RES-02"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "port": "out",
+      "to": "login"
+    },
+    {
+      "from": "login",
+      "port": "out",
+      "to": "sesion"
+    },
+    {
+      "from": "login",
+      "port": "error",
+      "to": "rechazo"
+    },
+    {
+      "from": "sesion",
+      "port": "out",
+      "to": "perfil"
+    },
+    {
+      "from": "perfil",
+      "port": "out",
+      "to": "ok"
+    },
+    {
+      "from": "perfil",
+      "port": "error",
+      "to": "rechazo"
+    }
+  ],
+  "compare": {
+    "mode": "expected",
+    "fields": [],
+    "ignore": []
+  },
+  "cases": [
+    {
+      "id": "LOG-001",
+      "name": "Usuario de prueba entra",
+      "input": {
+        "usuario": "emilys",
+        "clave": "emilyspass"
+      },
+      "expectStatus": 200,
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "ok"
+        },
+        {
+          "left": "nombre",
+          "op": "eq",
+          "right": "Emily Johnson"
+        }
+      ]
+    },
+    {
+      "id": "LOG-002",
+      "name": "Clave mala sale por error",
+      "input": {
+        "usuario": "emilys",
+        "clave": "mala"
+      },
+      "expectStatus": 401,
+      "expect": [
+        {
+          "left": "nodo",
+          "op": "eq",
+          "right": "rechazo"
+        },
+        {
+          "left": "detalle",
+          "op": "contains",
+          "right": "Invalid"
+        }
+      ]
+    }
+  ],
+  "vars": []
+}

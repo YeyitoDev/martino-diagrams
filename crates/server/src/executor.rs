@@ -110,6 +110,25 @@ pub fn res_value(r: &RunResult, path: &str) -> Option<Value> {
     }
 }
 
+/// Demo pública sin llave (`MARTINO_DEMO=1`): sólo se llama a los hosts de `MARTINO_ALLOWED_HOSTS`,
+/// para que nadie la use de proxy abierto ni llegue a la red interna de Fly.
+pub fn demo() -> bool {
+    std::env::var("MARTINO_DEMO").is_ok_and(|v| !v.is_empty() && v != "0")
+}
+
+pub fn allowed_hosts() -> String {
+    std::env::var("MARTINO_ALLOWED_HOSTS").unwrap_or_default()
+}
+
+/// Lista de hosts a respetar; `None` = no es demo, se llama a cualquiera.
+fn demo_hosts() -> Option<String> {
+    demo().then(allowed_hosts)
+}
+
+fn host_ok(url: &reqwest::Url, hosts: Option<&str>) -> bool {
+    hosts.is_none_or(|l| url.host_str().is_some_and(|h| l.split(',').any(|a| !a.trim().is_empty() && a.trim().eq_ignore_ascii_case(h))))
+}
+
 pub struct Executor {
     client: RwLock<reqwest::Client>,
 }
@@ -119,7 +138,15 @@ fn build_client(s: &Settings) -> Result<reqwest::Client, String> {
         .use_rustls_tls()
         .timeout(Duration::from_millis(s.request_timeout_ms.max(1)))
         .danger_accept_invalid_certs(!s.tls.reject_unauthorized)
-        .redirect(reqwest::redirect::Policy::limited(10));
+        .redirect(reqwest::redirect::Policy::custom(|a| {
+            if !host_ok(a.url(), demo_hosts().as_deref()) {
+                a.error("En la demo no se sigue una redirección a un host no permitido")
+            } else if a.previous().len() >= 10 {
+                a.error("Demasiadas redirecciones")
+            } else {
+                a.follow()
+            }
+        }));
     if !s.tls.ca_file.trim().is_empty() {
         let pem = std::fs::read(s.tls.ca_file.trim()).map_err(|e| format!("No se pudo leer la CA {}: {e}", s.tls.ca_file))?;
         for c in reqwest::Certificate::from_pem_bundle(&pem).map_err(|e| format!("CA inválida: {e}"))? {
@@ -240,6 +267,11 @@ impl Executor {
         let missing_now = missing.lock().unwrap().clone();
         res.missing = missing_now;
 
+        let hosts = demo_hosts();
+        if !reqwest::Url::parse(&url).map_or(hosts.is_none(), |u| host_ok(&u, hosts.as_deref())) {
+            res.error = Some(format!("En la demo sólo se puede llamar a: {}", hosts.unwrap_or_default()));
+            return res;
+        }
         let m = reqwest::Method::from_bytes(method.to_uppercase().as_bytes()).unwrap_or(reqwest::Method::GET);
         let client = self.client.read().unwrap().clone();
         let mut rb = client.request(m, &url);
@@ -330,4 +362,22 @@ pub fn used_vars(r: &Request) -> Vec<String> {
     out.dedup();
     out.retain(|n| !DYNAMIC_VARS.contains(&n.as_str()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::host_ok;
+
+    #[test]
+    fn demo_solo_llama_a_hosts_permitidos() {
+        let u = |s: &str| reqwest::Url::parse(s).unwrap();
+        let l = Some("httpbin.org, dummyjson.com");
+        assert!(host_ok(&u("http://169.254.169.254/latest"), None), "sin demo, cualquiera");
+        assert!(host_ok(&u("https://DummyJSON.com/products/1"), l));
+        assert!(host_ok(&u("https://httpbin.org:443/get"), l));
+        assert!(!host_ok(&u("http://127.0.0.1:4400/api/flows"), l), "ni el propio Martino");
+        assert!(!host_ok(&u("http://[fdaa::3]:22/"), l), "ni la red interna de Fly");
+        assert!(!host_ok(&u("https://httpbin.org.evil.com/"), l), "sufijo no cuenta");
+        assert!(!host_ok(&u("https://x.com/"), Some(" , ")), "lista vacía no deja pasar nada");
+    }
 }

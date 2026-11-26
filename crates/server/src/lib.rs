@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub async fn serve(core: Arc<state::Core>) -> std::io::Result<(u16, tokio::task::JoinHandle<()>)> {
     let (port, public) = { let c = core.cfg.read().unwrap(); (c.port, c.public_key.is_some()) };
     let bind = std::env::var("MARTINO_BIND").ok().filter(|b| public && !b.trim().is_empty()).unwrap_or_else(|| "127.0.0.1".into());
-    app::set_exposed(bind != "127.0.0.1");
+    app::set_exposed(bind != "127.0.0.1", public && executor::demo());
     let listener = tokio::net::TcpListener::bind((bind.as_str(), port)).await?;
     let port = listener.local_addr()?.port();
     core.cfg.write().unwrap().port = port;
